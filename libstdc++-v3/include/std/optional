@@ -1,6 +1,6 @@
 // <optional> -*- C++ -*-
 
-// Copyright (C) 2013-2020 Free Software Foundation, Inc.
+// Copyright (C) 2013-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -41,9 +41,7 @@
 #include <bits/exception_defines.h>
 #include <bits/functional_hash.h>
 #include <bits/enable_special_members.h>
-#if __cplusplus > 201703L
-# include <compare>
-#endif
+#include <memory_resource>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -58,6 +56,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _Tp>
     class optional;
+
+namespace pmr {
+	template<typename _Tp>
+	class __pmroptional;
+
+
+	template<typename _Tp>
+	using optional = conditional_t<uses_allocator<_Tp, pmr::polymorphic_allocator<void>>::value,
+		  __pmroptional<_Tp> , std::optional<_Tp>>;
+}
 
   /// Tag type to disengage optional objects.
   struct nullopt_t
@@ -456,7 +464,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     * Such a separate base class template is necessary in order to
     * conditionally make copy/move constructors trivial.
     *
-    * When the contained value is trivially copy/move constructible,
+    * When the contained value is trivally copy/move constructible,
     * the copy/move constructors of _Optional_base will invoke the
     * trivial copy/move constructor of _Optional_payload. Otherwise,
     * they will invoke _Optional_payload(bool, const _Optional_payload&)
@@ -635,22 +643,34 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   class optional;
 
   template<typename _Tp, typename _Up>
-    using __converts_from_optional =
-      __or_<is_constructible<_Tp, const optional<_Up>&>,
-	    is_constructible<_Tp, optional<_Up>&>,
-	    is_constructible<_Tp, const optional<_Up>&&>,
-	    is_constructible<_Tp, optional<_Up>&&>,
-	    is_convertible<const optional<_Up>&, _Tp>,
-	    is_convertible<optional<_Up>&, _Tp>,
-	    is_convertible<const optional<_Up>&&, _Tp>,
-	    is_convertible<optional<_Up>&&, _Tp>>;
+      using __converts_from_optional =
+        __or_<is_constructible<_Tp, const pmr::optional<_Up>&>,
+  	    is_constructible<_Tp, pmr::optional<_Up>&>,
+  	    is_constructible<_Tp, const pmr::optional<_Up>&&>,
+  	    is_constructible<_Tp, pmr::optional<_Up>&&>,
+  	    is_convertible<const pmr::optional<_Up>&, _Tp>,
+  	    is_convertible<pmr::optional<_Up>&, _Tp>,
+  	    is_convertible<const pmr::optional<_Up>&&, _Tp>,
+  	    is_convertible<pmr::optional<_Up>&&, _Tp>,
+  	    is_constructible<_Tp, const std::optional<_Up>&>,
+  	    is_constructible<_Tp, std::optional<_Up>&>,
+  	    is_constructible<_Tp, const std::optional<_Up>&&>,
+  	    is_constructible<_Tp, std::optional<_Up>&&>,
+  	    is_convertible<const std::optional<_Up>&, _Tp>,
+  	    is_convertible<std::optional<_Up>&, _Tp>,
+  	    is_convertible<const std::optional<_Up>&&, _Tp>,
+  	    is_convertible<std::optional<_Up>&&, _Tp>>;
 
-  template<typename _Tp, typename _Up>
-    using __assigns_from_optional =
-      __or_<is_assignable<_Tp&, const optional<_Up>&>,
-	    is_assignable<_Tp&, optional<_Up>&>,
-	    is_assignable<_Tp&, const optional<_Up>&&>,
-	    is_assignable<_Tp&, optional<_Up>&&>>;
+    template<typename _Tp, typename _Up>
+      using __assigns_from_optional =
+        __or_<is_assignable<_Tp&, const pmr::optional<_Up>&>,
+  	    is_assignable<_Tp&, pmr::optional<_Up>&>,
+  	    is_assignable<_Tp&, const pmr::optional<_Up>&&>,
+  	    is_assignable<_Tp&, pmr::optional<_Up>&&>,
+  	    is_assignable<_Tp&, const std::optional<_Up>&>,
+  	    is_assignable<_Tp&, std::optional<_Up>&>,
+  	    is_assignable<_Tp&, const std::optional<_Up>&&>,
+  	    is_assignable<_Tp&, std::optional<_Up>&&>>;
 
   /**
     * @brief Class template for optional values.
@@ -738,6 +758,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			  is_constructible<_Tp, _Up&&>,
 			  is_convertible<_Up&&, _Tp>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = true>
+
 	constexpr
 	optional(optional<_Up>&& __t)
 	{
@@ -756,6 +777,66 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  if (__t)
 	    emplace(std::move(*__t));
 	}
+
+
+      template<typename _Up,
+	       _Requires<__not_<is_same<_Tp, _Up>>,
+			 is_constructible<_Tp, const _Up&>,
+			 is_convertible<const _Up&, _Tp>,
+			 __not_<__converts_from_optional<_Tp, _Up>>> = true>
+	constexpr
+	optional(const pmr::__pmroptional<_Up>& __t)
+	{
+	  if (__t)
+	    emplace(*__t);
+	}
+
+      template <typename _Up,
+		_Requires<__not_<is_same<_Tp, _Up>>,
+			  is_constructible<_Tp, _Up&&>,
+			  __not_<is_convertible<_Up&&, _Tp>>,
+			  __not_<__converts_from_optional<_Tp, _Up>>> = false>
+	explicit constexpr
+	optional(optional<_Up>&& __t)
+=======
+      template<typename _Up,
+	       _Requires<__not_<is_same<_Tp, _Up>>,
+			 is_constructible<_Tp, const _Up&>,
+			 __not_<is_convertible<const _Up&, _Tp>>,
+			 __not_<__converts_from_optional<_Tp, _Up>>> = false>
+	explicit constexpr
+	optional(const pmr::__pmroptional<_Up>& __t)
+	{
+	  if (__t)
+	    emplace(*__t);
+	}
+
+      template <typename _Up,
+		_Requires<__not_<is_same<_Tp, _Up>>,
+			  is_constructible<_Tp, _Up&&>,
+			  is_convertible<_Up&&, _Tp>,
+			  __not_<__converts_from_optional<_Tp, _Up>>> = true>
+	constexpr
+	optional(pmr::__pmroptional<_Up>&& __t)
+>>>>>>> ea93c0ebbf4... old pmroptional work
+	{
+	  if (__t)
+	    emplace(std::move(*__t));
+	}
+
+      template <typename _Up,
+		_Requires<__not_<is_same<_Tp, _Up>>,
+			  is_constructible<_Tp, _Up&&>,
+			  __not_<is_convertible<_Up&&, _Tp>>,
+			  __not_<__converts_from_optional<_Tp, _Up>>> = false>
+	explicit constexpr
+	optional(pmr::__pmroptional<_Up>&& __t)
+	{
+	  if (__t)
+	    emplace(std::move(*__t));
+	}
+
+
 
       template<typename... _Args,
 	       _Requires<is_constructible<_Tp, _Args&&...>> = false>
@@ -827,6 +908,53 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			    __not_<__assigns_from_optional<_Tp, _Up>>>,
 		    optional&>
 	operator=(optional<_Up>&& __u)
+	{
+	  if (__u)
+	    {
+	      if (this->_M_is_engaged())
+		this->_M_get() = std::move(*__u);
+	      else
+		this->_M_construct(std::move(*__u));
+	    }
+	  else
+	    {
+	      this->_M_reset();
+	    }
+
+	  return *this;
+	}
+
+      template<typename _Up>
+	enable_if_t<__and_v<__not_<is_same<_Tp, _Up>>,
+			    is_constructible<_Tp, const _Up&>,
+			    is_assignable<_Tp&, _Up>,
+			    __not_<__converts_from_optional<_Tp, _Up>>,
+			    __not_<__assigns_from_optional<_Tp, _Up>>>,
+		    optional&>
+	operator=(const pmr::__pmroptional<_Up>& __u)
+	{
+	  if (__u)
+	    {
+	      if (this->_M_is_engaged())
+		this->_M_get() = *__u;
+	      else
+		this->_M_construct(*__u);
+	    }
+	  else
+	    {
+	      this->_M_reset();
+	    }
+	  return *this;
+	}
+
+      template<typename _Up>
+        enable_if_t<__and_v<__not_<is_same<_Tp, _Up>>,
+			    is_constructible<_Tp, _Up>,
+			    is_assignable<_Tp&, _Up>,
+			    __not_<__converts_from_optional<_Tp, _Up>>,
+			    __not_<__assigns_from_optional<_Tp, _Up>>>,
+		    optional&>
+	operator=(pmr::__pmroptional<_Up>&& __u)
 	{
 	  if (__u)
 	    {
@@ -1030,27 +1158,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return !__rhs || (static_cast<bool>(__lhs) && *__lhs >= *__rhs);
     }
 
-#ifdef __cpp_lib_three_way_comparison
-  template<typename _Tp, three_way_comparable_with<_Tp> _Up>
-    constexpr compare_three_way_result_t<_Tp, _Up>
-    operator<=>(const optional<_Tp>& __x, const optional<_Up>& __y)
-    {
-      return __x && __y ? *__x <=> *__y : bool(__x) <=> bool(__y);
-    }
-#endif
-
   // Comparisons with nullopt.
   template<typename _Tp>
     constexpr bool
     operator==(const optional<_Tp>& __lhs, nullopt_t) noexcept
     { return !__lhs; }
 
-#ifdef __cpp_lib_three_way_comparison
-  template<typename _Tp>
-    constexpr strong_ordering
-    operator<=>(const optional<_Tp>& __x, nullopt_t) noexcept
-    { return bool(__x) <=> false; }
-#else
   template<typename _Tp>
     constexpr bool
     operator==(nullopt_t, const optional<_Tp>& __rhs) noexcept
@@ -1105,7 +1218,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     constexpr bool
     operator>=(nullopt_t, const optional<_Tp>& __rhs) noexcept
     { return !__rhs; }
-#endif // three-way-comparison
 
   // Comparisons with value type.
   template<typename _Tp, typename _Up>
@@ -1179,13 +1291,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     operator>=(const _Up& __lhs, const optional<_Tp>& __rhs)
     -> __optional_relop_t<decltype(declval<_Up>() >= declval<_Tp>())>
     { return !__rhs || __lhs >= *__rhs; }
-
-#ifdef __cpp_lib_three_way_comparison
-  template<typename _Tp, typename _Up>
-    constexpr compare_three_way_result_t<_Tp, _Up>
-    operator<=>(const optional<_Tp>& __x, const _Up& __v)
-    { return bool(__x) ? *__x <=> __v : strong_ordering::less; }
-#endif
 
   // Swap and creation functions.
 
