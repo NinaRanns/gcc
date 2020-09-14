@@ -1,6 +1,6 @@
 // <optional> -*- C++ -*-
 
-// Copyright (C) 2013-2020 Free Software Foundation, Inc.
+// Copyright (C) 2013-2019 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -58,6 +58,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _Tp>
     class optional;
+
+
+	template<typename _Tp, typename _Allocator>
+	class basic_optional;
+
 
   /// Tag type to disengage optional objects.
   struct nullopt_t
@@ -456,7 +461,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     * Such a separate base class template is necessary in order to
     * conditionally make copy/move constructors trivial.
     *
-    * When the contained value is trivially copy/move constructible,
+    * When the contained value is trivally copy/move constructible,
     * the copy/move constructors of _Optional_base will invoke the
     * trivial copy/move constructor of _Optional_payload. Otherwise,
     * they will invoke _Optional_payload(bool, const _Optional_payload&)
@@ -635,22 +640,42 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   class optional;
 
   template<typename _Tp, typename _Up>
-    using __converts_from_optional =
-      __or_<is_constructible<_Tp, const optional<_Up>&>,
-	    is_constructible<_Tp, optional<_Up>&>,
-	    is_constructible<_Tp, const optional<_Up>&&>,
-	    is_constructible<_Tp, optional<_Up>&&>,
-	    is_convertible<const optional<_Up>&, _Tp>,
-	    is_convertible<optional<_Up>&, _Tp>,
-	    is_convertible<const optional<_Up>&&, _Tp>,
-	    is_convertible<optional<_Up>&&, _Tp>>;
+      using __converts_from_optional =
+        __or_<
+  	    is_constructible<_Tp, const std::optional<_Up>&>,
+  	    is_constructible<_Tp, std::optional<_Up>&>,
+  	    is_constructible<_Tp, const std::optional<_Up>&&>,
+  	    is_constructible<_Tp, std::optional<_Up>&&>,
+  	    is_convertible<const std::optional<_Up>&, _Tp>,
+  	    is_convertible<std::optional<_Up>&, _Tp>,
+  	    is_convertible<const std::optional<_Up>&&, _Tp>,
+  	    is_convertible<std::optional<_Up>&&, _Tp>>;
 
-  template<typename _Tp, typename _Up>
-    using __assigns_from_optional =
-      __or_<is_assignable<_Tp&, const optional<_Up>&>,
-	    is_assignable<_Tp&, optional<_Up>&>,
-	    is_assignable<_Tp&, const optional<_Up>&&>,
-	    is_assignable<_Tp&, optional<_Up>&&>>;
+    template<typename _Tp, typename _Up>
+      using __assigns_from_optional =
+        __or_<
+  	    is_assignable<_Tp&, const std::optional<_Up>&>,
+  	    is_assignable<_Tp&, std::optional<_Up>&>,
+  	    is_assignable<_Tp&, const std::optional<_Up>&&>,
+  	    is_assignable<_Tp&, std::optional<_Up>&&>>;
+
+    template<typename _Tp, typename _Up, typename _Alloc>
+        using __converts_from_basic_optional =
+          __or_<is_constructible<_Tp, const basic_optional<_Up, _Alloc>&>,
+          is_constructible<_Tp, basic_optional<_Up, _Alloc>&>,
+          is_constructible<_Tp, const basic_optional<_Up, _Alloc>&&>,
+          is_constructible<_Tp, basic_optional<_Up, _Alloc>&&>,
+          is_convertible<const basic_optional<_Up, _Alloc>&, _Tp>,
+          is_convertible<basic_optional<_Up, _Alloc>&, _Tp>,
+          is_convertible<const basic_optional<_Up, _Alloc>&&, _Tp>,
+          is_convertible<basic_optional<_Up, _Alloc>&&, _Tp>>;
+
+      template<typename _Tp, typename _Up, typename _Alloc>
+        using __assigns_from_basic_optional =
+          __or_<is_assignable<_Tp&, const basic_optional<_Up, _Alloc>&>,
+          is_assignable<_Tp&, basic_optional<_Up, _Alloc>&>,
+          is_assignable<_Tp&, const basic_optional<_Up, _Alloc>&&>,
+          is_assignable<_Tp&, basic_optional<_Up, _Alloc>&&>>;
 
   /**
     * @brief Class template for optional values.
@@ -757,6 +782,57 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    emplace(std::move(*__t));
 	}
 
+
+      template<typename _Up, typename _Allocator,
+	       _Requires<
+			 is_constructible<_Tp, const _Up&>,
+			 is_convertible<const _Up&, _Tp>,
+			 __not_<__converts_from_basic_optional<_Tp, _Up,  _Allocator>>> = true>
+	constexpr
+	optional(const basic_optional<_Up, _Allocator>& __t)
+	{
+	  if (__t)
+	    emplace(*__t);
+	}
+
+      template<typename _Up,typename _Allocator,
+	       _Requires<
+			 is_constructible<_Tp, const _Up&>,
+			 __not_<is_convertible<const _Up&, _Tp>>,
+			 __not_<__converts_from_basic_optional<_Tp, _Up,  _Allocator>>> = false>
+	explicit constexpr
+	optional(const basic_optional<_Up, _Allocator>& __t)
+	{
+	  if (__t)
+	    emplace(*__t);
+	}
+
+      template <typename _Up,typename _Allocator,
+		_Requires<
+			  is_constructible<_Tp, _Up&&>,
+			  is_convertible<_Up&&, _Tp>,
+			  __not_<__converts_from_basic_optional<_Tp, _Up,  _Allocator>>> = true>
+	constexpr
+	optional(basic_optional<_Up, _Allocator>&& __t)
+	{
+	  if (__t)
+	    emplace(std::move(*__t));
+	}
+
+      template <typename _Up, typename _Allocator,
+		_Requires<
+			  is_constructible<_Tp, _Up&&>,
+			  __not_<is_convertible<_Up&&, _Tp>>,
+			  __not_<__converts_from_basic_optional<_Tp, _Up,  _Allocator>>> = false>
+	explicit constexpr
+	optional(basic_optional<_Up, _Allocator>&& __t)
+	{
+	  if (__t)
+	    emplace(std::move(*__t));
+	}
+
+
+
       template<typename... _Args,
 	       _Requires<is_constructible<_Tp, _Args&&...>> = false>
 	explicit constexpr
@@ -843,6 +919,54 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  return *this;
 	}
 
+      template<typename _Up, typename _Allocator>
+	enable_if_t<__and_v<
+			    is_constructible<_Tp, const _Up&>,
+			    is_assignable<_Tp&, _Up>,
+			    __not_<__converts_from_basic_optional<_Tp, _Up,  _Allocator>>,
+			    __not_<__assigns_from_basic_optional<_Tp, _Up,  _Allocator>>>,
+		    optional&>
+	operator=(const basic_optional<_Up, _Allocator>& __u)
+	{
+	  if (__u)
+	    {
+	      if (this->_M_is_engaged())
+		this->_M_get() = *__u;
+	      else
+		this->_M_construct(*__u);
+	    }
+	  else
+	    {
+	      this->_M_reset();
+	    }
+	  return *this;
+	}
+
+
+      template<typename _Up, typename _Allocator>
+        enable_if_t<__and_v<
+			    is_constructible<_Tp, _Up>,
+			    is_assignable<_Tp&, _Up>,
+			    __not_<__converts_from_basic_optional<_Tp, _Up,  _Allocator>>,
+			    __not_<__assigns_from_basic_optional<_Tp, _Up,  _Allocator>>>,
+		    optional&>
+	operator=(basic_optional<_Up, _Allocator>&& __u)
+	{
+	  if (__u)
+	    {
+	      if (this->_M_is_engaged())
+		this->_M_get() = std::move(*__u);
+	      else
+		this->_M_construct(std::move(*__u));
+	    }
+	  else
+	    {
+	      this->_M_reset();
+	    }
+
+	  return *this;
+	}
+
       template<typename... _Args>
 	enable_if_t<is_constructible_v<_Tp, _Args&&...>, _Tp&>
 	emplace(_Args&&... __args)
@@ -885,6 +1009,28 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    __other._M_destruct();
 	  }
       }
+
+      template <typename _Allocator>
+      void
+         swap(basic_optional<_Tp, _Allocator> & __other)
+        //noexcept(is_nothrow_move_constructible_v<_Tp>
+        //     && is_nothrow_swappable_v<_Tp>)
+        {
+      using std::swap;
+
+      if (this->_M_is_engaged() && __other.has_value())
+        swap(this->_M_get(), __other.value());
+      else if (this->_M_is_engaged())
+        {
+          __other.emplace(std::move(this->_M_get()));
+          this->_M_destruct();
+        }
+      else if (__other.has_value())
+        {
+          this->_M_construct(std::move(__other.value()));
+          __other.reset();
+        }
+        }
 
       // Observers.
       constexpr const _Tp*
@@ -1253,7 +1399,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #if __cpp_deduction_guides >= 201606
   template <typename _Tp> optional(_Tp) -> optional<_Tp>;
-#endif
+  template <typename _Tp, typename _Allocator> optional(std::basic_optional<_Tp, _Allocator>) -> optional<_Tp>;
+
+  #endif
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
