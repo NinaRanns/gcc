@@ -1103,7 +1103,8 @@ template <typename _Tp>
       template<typename... _Args,
 	       _Requires<is_constructible<_Tp, _Args&&...>> = false>
 	explicit
-	__pmroptional(in_place_t, allocator_arg_t, const allocator_type& __a, _Args&&... __args)
+	__pmroptional(allocator_arg_t, const allocator_type& __a, 
+	              in_place_t, _Args&&... __args)
 	: _Base(allocator_arg,  __a) 
 	{ 
 	
@@ -1115,8 +1116,8 @@ template <typename _Tp>
 					  initializer_list<_Up>&,
 					  _Args&&...>> = false>
 	explicit
-	__pmroptional(in_place_t, allocator_arg_t, const allocator_type& __a, 
-					 initializer_list<_Up> __il, _Args&&... __args)
+	__pmroptional(allocator_arg_t, const allocator_type& __a, 
+	              in_place_t, initializer_list<_Up> __il, _Args&&... __args)
 	: _Base(allocator_arg,  __a) 
 	{ 
 	 emplace(__il, std::forward<_Args>(__args)...);
@@ -1698,11 +1699,21 @@ template <typename _Tp>
     make_optional(_Tp&& __t)
     { return optional<decay_t<_Tp>> { std::forward<_Tp>(__t) }; }
 
-  template<typename _Tp, typename ..._Args>
-    optional<_Tp>
+
+  template<typename _Tp>
+  optional<_Tp>
     constexpr
-    make_optional(_Args&&... __args)
-    { return optional<_Tp> { in_place, std::forward<_Args>(__args)... }; }
+    make_optional()
+    { return optional<_Tp> { in_place}; }
+
+
+  template<typename _Tp, typename _Arg,  typename ..._Args>
+  enable_if_t< __not_<is_same<allocator_arg_t, __remove_cvref_t<_Arg>> >::value,
+                optional<_Tp> >
+    constexpr
+    make_optional(_Arg&& __arg, _Args&&... __args)
+    { return optional<_Tp> { in_place, std::forward<_Arg>(__arg),
+                             std::forward<_Args>(__args)... }; }
 
   template<typename _Tp, typename _Up, typename ..._Args>
     constexpr
@@ -1714,20 +1725,26 @@ template <typename _Tp>
   template<typename _Tp>
   enable_if_t<std::uses_allocator<_Tp, polymorphic_allocator<void>>::value,
       		    optional<decay_t<_Tp>>>
-    alloc_optional(const polymorphic_allocator<void>& __a,_Tp&& __t)
-    { return optional<decay_t<_Tp>> (in_place, allocator_arg, __a, std::forward<_Tp>(__t) ); }
+    make_optional(const allocator_arg_t &, const polymorphic_allocator<void>& __a,
+                  _Tp&& __t)
+    { return optional<decay_t<_Tp>> (allocator_arg, __a, 
+                                    in_place, std::forward<_Tp>(__t) ); }
 
   template<typename _Tp, typename ..._Args>
   enable_if_t<std::uses_allocator<_Tp, polymorphic_allocator<void>>::value,
       		    optional<_Tp>>
-    alloc_optional(const polymorphic_allocator<void>& __a,_Args&&... __args)
-    { return optional<_Tp> (in_place, allocator_arg, __a, std::forward<_Args>(__args)... );} 
+    make_optional(const allocator_arg_t &, 
+                  const polymorphic_allocator<void>& __a,_Args&&... __args)
+    { return optional<_Tp> (allocator_arg, __a, 
+                            in_place, std::forward<_Args>(__args)... );} 
 
   template<typename _Tp,typename _Up, typename ..._Args>  
   enable_if_t<std::uses_allocator<_Tp, polymorphic_allocator<void>>::value,
       		    optional<_Tp>>
-    alloc_optional(const polymorphic_allocator<void>& __a, initializer_list<_Up> __il, _Args&&... __args)
-    { return optional<_Tp> {in_place, allocator_arg, __a,__il, std::forward<_Args>(__args)... }; }
+    make_optional(const allocator_arg_t &, 
+                  const polymorphic_allocator<void>& __a, initializer_list<_Up> __il, _Args&&... __args)
+    { return optional<_Tp> {allocator_arg, __a,
+                            in_place, __il,  std::forward<_Args>(__args)... }; }
   
 } // namespace pmr
 // Hash.

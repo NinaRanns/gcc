@@ -40,43 +40,45 @@ struct my_pmr : public std::pmr::memory_resource {
 
 } test_pmr;
 
+
 struct value_type
 {
-  static my_pmr*  domain_alloc_convert(std::pmr::polymorphic_allocator<void> _a) { return &test_pmr; };
-  value_type(my_pmr* alloc)
+  typedef std::pmr::polymorphic_allocator<void> allocator_type;
+
+  value_type(const allocator_type& alloc)
   {
     tagged_constructor_called = true;
-    VERIFY( alloc == &test_pmr);
+    VERIFY( alloc.resource() == &test_pmr);
   }
 
 
-  value_type(int _i,my_pmr* alloc)
+  value_type(int _i,const allocator_type& alloc)
   : i(_i)
   {
     tagged_constructor_called = true;
-    VERIFY( alloc == &test_pmr);
+    VERIFY( alloc.resource() == &test_pmr);
   }
 
 
-  value_type(value_type const& other, my_pmr* alloc)
+  value_type(value_type const& other, const allocator_type& alloc)
   : i(other.i)
   {
     tagged_constructor_called = true;
-    VERIFY( alloc == &test_pmr);
+    VERIFY( alloc.resource() == &test_pmr);
   }
 
-  value_type(int i, int j, my_pmr* alloc)
+  value_type(int i, int j, const allocator_type& alloc)
   : i(i+j)
   {
     tagged_constructor_called = true;
-    VERIFY( alloc == &test_pmr);
+    VERIFY( alloc.resource() == &test_pmr);
   }
 
-  value_type(std::initializer_list<int> il,my_pmr* alloc)
+  value_type(std::initializer_list<int> il,const allocator_type& alloc)
   : i(1234)
   {
 	tagged_constructor_called = true;
-	VERIFY( alloc == &test_pmr);
+	VERIFY( alloc.resource() == &test_pmr);
   }
 
 
@@ -106,7 +108,7 @@ int main()
   value_type v = 42;
   reset_flags();
 
-  auto o = std::pmr::alloc_optional<value_type>(my_alloc, v);
+  auto o = std::pmr::make_optional<value_type>(std::allocator_arg, my_alloc, v);
   static_assert( std::is_same<decltype(o), std::pmr::optional<value_type>>(), "" );
   VERIFY( o && o->i == 42 );
   VERIFY( &*o != &v );
@@ -114,7 +116,7 @@ int main()
   VERIFY( !plain_constructor_called);
   reset_flags();
 
-  auto o2 = std::pmr::alloc_optional<value_type>(my_alloc, 1,3);
+  auto o2 = std::pmr::make_optional<value_type>(std::allocator_arg, my_alloc, 1,3);
   static_assert( std::is_same<decltype(o2), std::pmr::optional<value_type>>(), "" );
   VERIFY( o2 && o2->i == 4 );
   VERIFY( tagged_constructor_called);
@@ -122,14 +124,14 @@ int main()
   reset_flags();
 
 
-  auto o3 = std::pmr::alloc_optional<value_type>(my_alloc);
+  auto o3 = std::pmr::make_optional<value_type>(std::allocator_arg, my_alloc);
   static_assert( std::is_same<decltype(o3), std::pmr::optional<value_type>>(), "" );
   VERIFY( o3 && o3->i == 55 );
   VERIFY( tagged_constructor_called);
   VERIFY( !plain_constructor_called);
   reset_flags();
 
-  auto o4 = std::pmr::alloc_optional<value_type>(my_alloc,{1,3});
+  auto o4 = std::pmr::make_optional<value_type>(std::allocator_arg,my_alloc,{1,3});
   static_assert( std::is_same<decltype(o4), std::pmr::optional<value_type>>(), "" );
   VERIFY( o4 && o4->i == 1234 );
   VERIFY( tagged_constructor_called);
