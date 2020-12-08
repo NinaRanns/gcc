@@ -1,5 +1,5 @@
 // TODO : make thi sinto somethign with aa aware type
-// { dg-options "-std=gnu++17" }
+// { dg-options "-std=gnu++20" }
 // { dg-do run }
 
 // Copyright (C) 2017-2018 Free Software Foundation, Inc.

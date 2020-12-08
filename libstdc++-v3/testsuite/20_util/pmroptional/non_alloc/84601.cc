@@ -1,4 +1,4 @@
-// { dg-options "-std=gnu++17" }
+// { dg-options "-std=gnu++20" }
 // { dg-do compile }
 
 #include "../../../../include/std/pmroptional"

@@ -1,4 +1,4 @@
-// { dg-options "-std=gnu++17" }
+// { dg-options "-std=gnu++20" }
 // { dg-do run }
 
 // Copyright (C) 2013-2018 Free Software Foundation, Inc.
@@ -312,7 +312,8 @@ struct JustEq {};
 bool operator==(const JustEq&, const JustEq&);
 
 static_assert(is_eq_comparable<optional<JustEq>>::value, "");
-static_assert(!is_neq_comparable<optional<JustEq>>::value, "");
+static_assert(is_neq_comparable<optional<JustEq>>::value ==
+              is_neq_comparable<JustEq>::value  , "");
 static_assert(!is_lt_comparable<optional<JustEq>>::value, "");
 static_assert(!is_gt_comparable<optional<JustEq>>::value, "");
 static_assert(!is_le_comparable<optional<JustEq>>::value, "");

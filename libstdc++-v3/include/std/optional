@@ -59,12 +59,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 namespace pmr {
 	template<typename _Tp>
-	class __pmroptional;
-
-
-	template<typename _Tp>
-	using optional = conditional_t<uses_allocator<_Tp, pmr::polymorphic_allocator<void>>::value,
-		  __pmroptional<_Tp> , std::optional<_Tp>>;
+	class optional;
 }
 
   /// Tag type to disengage optional objects.
@@ -785,7 +780,7 @@ namespace pmr {
 			 is_convertible<const _Up&, _Tp>,
 			 __not_<__converts_from_optional<_Tp, _Up>>> = true>
 	constexpr
-	optional(const pmr::__pmroptional<_Up>& __t)
+	optional(const pmr::optional<_Up>& __t)
 	{
 	  if (__t)
 	    emplace(*__t);
@@ -805,7 +800,7 @@ namespace pmr {
 			 __not_<is_convertible<const _Up&, _Tp>>,
 			 __not_<__converts_from_optional<_Tp, _Up>>> = false>
 	explicit constexpr
-	optional(const pmr::__pmroptional<_Up>& __t)
+	optional(const pmr::optional<_Up>& __t)
 	{
 	  if (__t)
 	    emplace(*__t);
@@ -817,8 +812,12 @@ namespace pmr {
 			  is_convertible<_Up&&, _Tp>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = true>
 	constexpr
+<<<<<<< HEAD
 	optional(pmr::__pmroptional<_Up>&& __t)
 >>>>>>> ea93c0ebbf4... old pmroptional work
+=======
+	optional(pmr::optional<_Up>&& __t)
+>>>>>>> 63715093914... pmr optional v2 - no inherited constructors
 	{
 	  if (__t)
 	    emplace(std::move(*__t));
@@ -830,7 +829,7 @@ namespace pmr {
 			  __not_<is_convertible<_Up&&, _Tp>>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = false>
 	explicit constexpr
-	optional(pmr::__pmroptional<_Up>&& __t)
+	optional(pmr::optional<_Up>&& __t)
 	{
 	  if (__t)
 	    emplace(std::move(*__t));
@@ -931,7 +930,7 @@ namespace pmr {
 			    __not_<__converts_from_optional<_Tp, _Up>>,
 			    __not_<__assigns_from_optional<_Tp, _Up>>>,
 		    optional&>
-	operator=(const pmr::__pmroptional<_Up>& __u)
+	operator=(const pmr::optional<_Up>& __u)
 	{
 	  if (__u)
 	    {
@@ -947,6 +946,7 @@ namespace pmr {
 	  return *this;
 	}
 
+
       template<typename _Up>
         enable_if_t<__and_v<__not_<is_same<_Tp, _Up>>,
 			    is_constructible<_Tp, _Up>,
@@ -954,7 +954,7 @@ namespace pmr {
 			    __not_<__converts_from_optional<_Tp, _Up>>,
 			    __not_<__assigns_from_optional<_Tp, _Up>>>,
 		    optional&>
-	operator=(pmr::__pmroptional<_Up>&& __u)
+	operator=(pmr::optional<_Up>&& __u)
 	{
 	  if (__u)
 	    {
