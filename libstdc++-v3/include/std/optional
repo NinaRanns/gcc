@@ -42,6 +42,9 @@
 #include <bits/functional_hash.h>
 #include <bits/enable_special_members.h>
 #include <memory_resource>
+#if __cplusplus > 201703L
+# include <compare>
+#endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -753,7 +756,6 @@ namespace pmr {
 			  is_constructible<_Tp, _Up&&>,
 			  is_convertible<_Up&&, _Tp>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = true>
-
 	constexpr
 	optional(optional<_Up>&& __t)
 	{
@@ -786,14 +788,6 @@ namespace pmr {
 	    emplace(*__t);
 	}
 
-      template <typename _Up,
-		_Requires<__not_<is_same<_Tp, _Up>>,
-			  is_constructible<_Tp, _Up&&>,
-			  __not_<is_convertible<_Up&&, _Tp>>,
-			  __not_<__converts_from_optional<_Tp, _Up>>> = false>
-	explicit constexpr
-	optional(optional<_Up>&& __t)
-=======
       template<typename _Up,
 	       _Requires<__not_<is_same<_Tp, _Up>>,
 			 is_constructible<_Tp, const _Up&>,
@@ -812,12 +806,7 @@ namespace pmr {
 			  is_convertible<_Up&&, _Tp>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = true>
 	constexpr
-<<<<<<< HEAD
-	optional(pmr::__pmroptional<_Up>&& __t)
->>>>>>> ea93c0ebbf4... old pmroptional work
-=======
 	optional(pmr::optional<_Up>&& __t)
->>>>>>> 63715093914... pmr optional v2 - no inherited constructors
 	{
 	  if (__t)
 	    emplace(std::move(*__t));
@@ -1158,12 +1147,27 @@ namespace pmr {
       return !__rhs || (static_cast<bool>(__lhs) && *__lhs >= *__rhs);
     }
 
+#ifdef __cpp_lib_three_way_comparison
+  template<typename _Tp, three_way_comparable_with<_Tp> _Up>
+    constexpr compare_three_way_result_t<_Tp, _Up>
+    operator<=>(const optional<_Tp>& __x, const optional<_Up>& __y)
+    {
+      return __x && __y ? *__x <=> *__y : bool(__x) <=> bool(__y);
+    }
+#endif
+
   // Comparisons with nullopt.
   template<typename _Tp>
     constexpr bool
     operator==(const optional<_Tp>& __lhs, nullopt_t) noexcept
     { return !__lhs; }
 
+#ifdef __cpp_lib_three_way_comparison
+  template<typename _Tp>
+    constexpr strong_ordering
+    operator<=>(const optional<_Tp>& __x, nullopt_t) noexcept
+    { return bool(__x) <=> false; }
+#else
   template<typename _Tp>
     constexpr bool
     operator==(nullopt_t, const optional<_Tp>& __rhs) noexcept
@@ -1218,6 +1222,7 @@ namespace pmr {
     constexpr bool
     operator>=(nullopt_t, const optional<_Tp>& __rhs) noexcept
     { return !__rhs; }
+#endif // three-way-comparison
 
   // Comparisons with value type.
   template<typename _Tp, typename _Up>
@@ -1291,6 +1296,13 @@ namespace pmr {
     operator>=(const _Up& __lhs, const optional<_Tp>& __rhs)
     -> __optional_relop_t<decltype(declval<_Up>() >= declval<_Tp>())>
     { return !__rhs || __lhs >= *__rhs; }
+
+#ifdef __cpp_lib_three_way_comparison
+  template<typename _Tp, typename _Up>
+    constexpr compare_three_way_result_t<_Tp, _Up>
+    operator<=>(const optional<_Tp>& __x, const _Up& __v)
+    { return bool(__x) ? *__x <=> __v : strong_ordering::less; }
+#endif
 
   // Swap and creation functions.
 
