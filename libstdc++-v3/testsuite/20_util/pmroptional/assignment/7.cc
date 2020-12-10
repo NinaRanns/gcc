@@ -19,22 +19,10 @@
 // <http://www.gnu.org/licenses/>.
 
 #include <testsuite_hooks.h>
-#include "../../../../../include/std/pmroptional"
+#include "../../../../include/std/pmroptional"
 
 struct value_type
 {
-  typedef std::pmr::polymorphic_allocator<void> allocator_type;
-
-  value_type(std::allocator_arg_t,allocator_type)
-  : value_type(){}
-
-
-  value_type(std::allocator_arg_t,allocator_type, int i)
-  : value_type(i){}
-
-  value_type(std::allocator_arg_t,allocator_type, value_type const& other)
-    : value_type(other.i){}
-
   value_type(){};
 
   value_type(int _i) : i(_i){};
@@ -49,12 +37,46 @@ struct value_type
   }
   int i = 0;
 };
-
-int main()
+struct value_type_aa
 {
-  std::pmr::optional<value_type> o{666};
+  typedef std::pmr::polymorphic_allocator<void> allocator_type;
+
+  value_type_aa(std::allocator_arg_t,allocator_type)
+  : value_type_aa(){}
+
+
+  value_type_aa(std::allocator_arg_t,allocator_type, int i)
+  : value_type_aa(i){}
+
+  value_type_aa(std::allocator_arg_t,allocator_type, value_type_aa const& other)
+    : value_type_aa(other.i){}
+
+  value_type_aa(){};
+
+  value_type_aa(int _i) : i(_i){};
+
+  value_type_aa(value_type_aa const& other): i(other.i)
+      {};
+
+  value_type_aa& operator=(value_type_aa const& other)
+  {
+    i = other.i;
+    return *this;
+  }
+  int i = 0;
+};
+template<typename T>
+void
+test01()
+{
+  std::pmr::optional<T> o{666};
   VERIFY(o && o->i == 666);
   o.reset();
   VERIFY(!o);
-  static_assert(noexcept(std::declval<std::pmr::optional<value_type>>().reset()));
+  static_assert(noexcept(std::declval<std::pmr::optional<T>>().reset()));
+}
+int main()
+{
+  test01<value_type>();
+  test01<value_type_aa>();
 }

@@ -41,7 +41,6 @@
 #include <bits/exception_defines.h>
 #include <bits/functional_hash.h>
 #include <bits/enable_special_members.h>
-#include <memory_resource>
 #if __cplusplus > 201703L
 # include <compare>
 #endif
@@ -913,7 +912,7 @@ namespace pmr {
 	}
 
       template<typename _Up>
-	enable_if_t<__and_v<__not_<is_same<_Tp, _Up>>,
+	enable_if_t<__and_v<
 			    is_constructible<_Tp, const _Up&>,
 			    is_assignable<_Tp&, _Up>,
 			    __not_<__converts_from_optional<_Tp, _Up>>,
@@ -937,7 +936,7 @@ namespace pmr {
 
 
       template<typename _Up>
-        enable_if_t<__and_v<__not_<is_same<_Tp, _Up>>,
+        enable_if_t<__and_v<
 			    is_constructible<_Tp, _Up>,
 			    is_assignable<_Tp&, _Up>,
 			    __not_<__converts_from_optional<_Tp, _Up>>,

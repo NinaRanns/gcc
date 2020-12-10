@@ -19,7 +19,7 @@
 // <http://www.gnu.org/licenses/>.
 
 #include <testsuite_hooks.h>
-#include "../../../../../include/std/pmroptional"
+#include "../../../../include/std/pmroptional"
 
 struct exception {};
 
@@ -31,8 +31,7 @@ struct mixin_counter
   mixin_counter(mixin_counter const&) { ++counter; }
   ~mixin_counter() { --counter; }
 };
-
-struct value_type : private mixin_counter
+struct value_type_non_aa : private mixin_counter
 {
   enum state_type
   {
@@ -46,15 +45,78 @@ struct value_type : private mixin_counter
     threw,
   };
 
-  value_type() = default;
+  value_type_non_aa() = default;
 
-  explicit value_type(state_type state_)
+  explicit value_type_non_aa(state_type state_)
   : state(state_)
   {
     throw_if(throwing_construction);
   }
 
-  value_type(value_type const& other)
+  value_type_non_aa(value_type_non_aa const& other)
+  : state(other.state)
+  {
+    throw_if(throwing_copy);
+  }
+
+  value_type_non_aa&
+  operator=(value_type_non_aa const& other)
+  {
+    state = other.state;
+    throw_if(throwing_copy_assignment);
+    return *this;
+  }
+
+  value_type_non_aa(value_type_non_aa&& other)
+  : state(other.state)
+  {
+    other.state = moved_from;
+    throw_if(throwing_move);
+  }
+
+  value_type_non_aa&
+  operator=(value_type_non_aa&& other)
+  {
+    state = other.state;
+    other.state = moved_from;
+    throw_if(throwing_move_assignment);
+    return *this;
+  }
+
+  void throw_if(state_type match)
+  {
+    if(state == match)
+    {
+      state = threw;
+      throw exception {};
+    }
+  }
+
+  state_type state = zero;
+};
+struct value_type_aa : private mixin_counter
+{
+  enum state_type
+  {
+    zero,
+    moved_from,
+    throwing_construction,
+    throwing_copy,
+    throwing_copy_assignment,
+    throwing_move,
+    throwing_move_assignment,
+    threw,
+  };
+
+  value_type_aa() = default;
+
+  explicit value_type_aa(state_type state_)
+  : state(state_)
+  {
+    throw_if(throwing_construction);
+  }
+
+  value_type_aa(value_type_aa const& other)
   : state(other.state)
   {
     throw_if(throwing_copy);
@@ -62,37 +124,37 @@ struct value_type : private mixin_counter
 
   typedef std::pmr::polymorphic_allocator<void> allocator_type;
 
-  value_type(std::allocator_arg_t,allocator_type)
-  : value_type(){}
+  value_type_aa(std::allocator_arg_t,allocator_type)
+  : value_type_aa(){}
 
 
-  value_type(std::allocator_arg_t,allocator_type, state_type i)
-  : value_type(i){}
+  value_type_aa(std::allocator_arg_t,allocator_type, state_type i)
+  : value_type_aa(i){}
 
-  value_type(std::allocator_arg_t,allocator_type, value_type const& other)
-    : value_type(other){}
+  value_type_aa(std::allocator_arg_t,allocator_type, value_type_aa const& other)
+    : value_type_aa(other){}
 
-  value_type(std::allocator_arg_t,allocator_type, value_type &&other)
-      : value_type(std::move(other)){}
+  value_type_aa(std::allocator_arg_t,allocator_type, value_type_aa &&other)
+      : value_type_aa(std::move(other)){}
 
 
-  value_type&
-  operator=(value_type const& other)
+  value_type_aa&
+  operator=(value_type_aa const& other)
   {
     state = other.state;
     throw_if(throwing_copy_assignment);
     return *this;
   }
 
-  value_type(value_type&& other)
+  value_type_aa(value_type_aa&& other)
   : state(other.state)
   {
     other.state = moved_from;
     throw_if(throwing_move);
   }
 
-  value_type&
-  operator=(value_type&& other)
+  value_type_aa&
+  operator=(value_type_aa&& other)
   {
     state = other.state;
     other.state = moved_from;
@@ -112,11 +174,12 @@ struct value_type : private mixin_counter
   state_type state = zero;
 };
 
-int main()
+template<typename T, typename U, typename V>
+void
+test01()
 {
-  using O = std::pmr::optional<value_type>;
-  using S = value_type::state_type;
-  auto const make = [](S s = S::zero) { return O { std::in_place, s }; };
+  using S = V::state_type;
+  auto const make = [](S s = S::zero) { return U { std::in_place, s }; };
 
   enum outcome_type { nothrow, caught, bad_catch };
 
@@ -124,25 +187,25 @@ int main()
 
   // From disengaged optional
   {
-    O o;
+    T o;
     VERIFY( !o );
-    O p;
+    U p;
     o = p;
     VERIFY( !o );
     VERIFY( !p );
   }
 
   {
-    O o;
+    T o;
     VERIFY( !o );
-    O p;
+    U p;
     o = std::move(p);
     VERIFY( !o );
     VERIFY( !p );
   }
 
   {
-    O o;
+    T o;
     VERIFY( !o );
     o = {};
     VERIFY( !o );
@@ -150,18 +213,18 @@ int main()
 
   // From engaged optional
   {
-    O o;
+    T o;
     VERIFY( !o );
-    O p = make(S::throwing_copy_assignment);
+    U p = make(S::throwing_copy_assignment);
     o = p;
     VERIFY( o && o->state == S::throwing_copy_assignment );
     VERIFY( p && p->state == S::throwing_copy_assignment );
   }
 
   {
-    O o;
+    T o;
     VERIFY( !o );
-    O p = make(S::throwing_move_assignment);
+    U p = make(S::throwing_move_assignment);
     o = std::move(p);
     VERIFY( o && o->state == S::throwing_move_assignment );
     VERIFY( p && p->state == S::moved_from );
@@ -169,9 +232,9 @@ int main()
 
   {
     outcome_type outcome {};
-    O o;
+    T o;
     VERIFY( !o );
-    O p = make(S::throwing_copy);
+    U p = make(S::throwing_copy);
 
     try
     {
@@ -189,9 +252,9 @@ int main()
 
   {
     outcome_type outcome {};
-    O o;
+    T o;
     VERIFY( !o );
-    O p = make(S::throwing_move);
+    U p = make(S::throwing_move);
 
     try
     {
@@ -208,4 +271,16 @@ int main()
   }
 
   VERIFY( counter == 0 );
+}
+
+int main()
+{
+  test01<std::pmr::optional<value_type_non_aa>,std::pmr::optional<value_type_non_aa>, value_type_non_aa>();
+  test01<std::pmr::optional<value_type_non_aa>,std::optional<value_type_non_aa>, value_type_non_aa>();
+  test01<std::optional<value_type_non_aa>,std::pmr::optional<value_type_non_aa>, value_type_non_aa>();
+
+  test01<std::pmr::optional<value_type_aa>,std::pmr::optional<value_type_aa>, value_type_aa>();
+  test01<std::optional<value_type_aa>,std::pmr::optional<value_type_aa>, value_type_aa>();
+  test01<std::pmr::optional<value_type_non_aa>,std::optional<value_type_non_aa>, value_type_non_aa>();
+
 }
