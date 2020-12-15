@@ -776,7 +776,7 @@ namespace pmr {
 
 
       template<typename _Up,
-	       _Requires<__not_<is_same<_Tp, _Up>>,
+	       _Requires<
 			 is_constructible<_Tp, const _Up&>,
 			 is_convertible<const _Up&, _Tp>,
 			 __not_<__converts_from_optional<_Tp, _Up>>> = true>
@@ -788,7 +788,7 @@ namespace pmr {
 	}
 
       template<typename _Up,
-	       _Requires<__not_<is_same<_Tp, _Up>>,
+	       _Requires<
 			 is_constructible<_Tp, const _Up&>,
 			 __not_<is_convertible<const _Up&, _Tp>>,
 			 __not_<__converts_from_optional<_Tp, _Up>>> = false>
@@ -800,7 +800,7 @@ namespace pmr {
 	}
 
       template <typename _Up,
-		_Requires<__not_<is_same<_Tp, _Up>>,
+		_Requires<
 			  is_constructible<_Tp, _Up&&>,
 			  is_convertible<_Up&&, _Tp>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = true>
@@ -812,7 +812,7 @@ namespace pmr {
 	}
 
       template <typename _Up,
-		_Requires<__not_<is_same<_Tp, _Up>>,
+		_Requires<
 			  is_constructible<_Tp, _Up&&>,
 			  __not_<is_convertible<_Up&&, _Tp>>,
 			  __not_<__converts_from_optional<_Tp, _Up>>> = false>
@@ -1001,6 +1001,27 @@ namespace pmr {
 	    __other._M_destruct();
 	  }
       }
+
+      void
+        swap(pmr::optional<_Tp> & __other)
+        //noexcept(is_nothrow_move_constructible_v<_Tp>
+        //     && is_nothrow_swappable_v<_Tp>)
+        {
+      using std::swap;
+
+      if (this->_M_is_engaged() && __other.has_value())
+        swap(this->_M_get(), __other.value());
+      else if (this->_M_is_engaged())
+        {
+          __other.emplace(std::move(this->_M_get()));
+          this->_M_destruct();
+        }
+      else if (__other.has_value())
+        {
+          this->_M_construct(std::move(__other.value()));
+          __other.reset();
+        }
+        }
 
       // Observers.
       constexpr const _Tp*
@@ -1369,7 +1390,10 @@ namespace pmr {
 
 #if __cpp_deduction_guides >= 201606
   template <typename _Tp> optional(_Tp) -> optional<_Tp>;
-#endif
+  template <typename _Tp> optional(const std::pmr::optional<_Tp>&) -> optional<_Tp>;
+  template <typename _Tp> optional(std::pmr::optional<_Tp>&&) -> optional<_Tp>;
+
+  #endif
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std

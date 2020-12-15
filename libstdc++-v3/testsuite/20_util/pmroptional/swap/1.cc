@@ -19,7 +19,7 @@
 // <http://www.gnu.org/licenses/>.
 
 #include <testsuite_hooks.h>
-#include "../../../../../include/std/pmroptional"
+#include "../../../../include/std/pmroptional"
 
 struct exception {};
 
@@ -40,21 +40,30 @@ struct value_type : private mixin_counter
   explicit value_type(int state) : state(state) { }
   int state;
 
+};
+
+
+struct value_type_aa : private mixin_counter
+{
+  explicit value_type_aa(int state) : state(state) { }
+  int state;
+
 
   typedef std::pmr::polymorphic_allocator<void> allocator_type;
 
-  value_type(std::allocator_arg_t,allocator_type, int i)
-  : value_type(i){}
+  value_type_aa(std::allocator_arg_t,allocator_type, int i)
+  : value_type_aa(i){}
 
-  value_type(std::allocator_arg_t,allocator_type, value_type const& other)
-    : value_type(other){}
+  value_type_aa(std::allocator_arg_t,allocator_type, value_type_aa const& other)
+    : value_type_aa(other){}
 
-  value_type(std::allocator_arg_t,allocator_type, value_type &&other)
-    : value_type(std::move(other)){}
+  value_type_aa(std::allocator_arg_t,allocator_type, value_type_aa &&other)
+    : value_type_aa(std::move(other)){}
 
 };
 
 int swaps = 0;
+
 
 void
 swap(value_type& lhs, value_type& rhs)
@@ -64,37 +73,47 @@ swap(value_type& lhs, value_type& rhs)
   swap(lhs.state, rhs.state);
 }
 
+void
+swap(value_type_aa& lhs, value_type_aa& rhs)
+{
+  ++swaps;
+  using std::swap;
+  swap(lhs.state, rhs.state);
+}
+
+
 } // namespace ns
 
-int main()
+template<typename T, typename U>
+void
+test01()
 {
-  using O = std::pmr::optional<ns::value_type>;
 
-  VERIFY( ns::swaps == 0 );
+  ns::swaps = 0;
 
   {
-    O o, p;
+    T o; U p;
     swap(o, p);
     VERIFY( !o );
     VERIFY( !p );
   }
 
   {
-    O o { std::in_place, 45 }, p;
+    T o { std::in_place, 45 }; U p;
     swap(o, p);
     VERIFY( !o );
     VERIFY( p && p->state == 45 );
   }
 
   {
-    O o, p { std::in_place, 45 };
+    T o; U p { std::in_place, 45 };
     swap(o, p);
     VERIFY( o && o->state == 45 );
     VERIFY( !p );
   }
 
   {
-    O o { std::in_place, 167 }, p { std::in_place, 999 };
+    T o { std::in_place, 167 }; U p { std::in_place, 999 };
     VERIFY( ns::swaps == 0 );
 
     swap(o, p);
@@ -105,4 +124,17 @@ int main()
   }
 
   VERIFY( counter == 0 );
+
+}
+int main()
+{
+
+  test01<std::pmr::optional<ns::value_type>, std::pmr::optional<ns::value_type>>();
+  test01<std::pmr::optional<ns::value_type>, std::optional<ns::value_type>>();
+  test01<std::optional<ns::value_type>, std::pmr::optional<ns::value_type>>();
+
+  test01<std::pmr::optional<ns::value_type_aa>, std::pmr::optional<ns::value_type_aa>>();
+  test01<std::pmr::optional<ns::value_type_aa>, std::optional<ns::value_type_aa>>();
+  test01<std::optional<ns::value_type_aa>, std::pmr::optional<ns::value_type_aa>>();
+
 }

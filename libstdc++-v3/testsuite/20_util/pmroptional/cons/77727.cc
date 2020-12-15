@@ -19,7 +19,7 @@
 // <http://www.gnu.org/licenses/>.
 
 #include <testsuite_hooks.h>
-#include "../../../../../include/std/pmroptional"
+#include "../../../../include/std/pmroptional"
 
 
 struct NonTransferable
@@ -31,21 +31,41 @@ struct NonTransferable
   operator int() {return x;}
 };
 
-int main()
+struct NonTransferable_aa
+{
+  int x;
+  NonTransferable_aa(int x) : x(x) {}
+  NonTransferable_aa(NonTransferable_aa&&) = delete;
+  NonTransferable_aa& operator=(NonTransferable_aa&&) = delete;
+  operator int() {return x;}
+
+  typedef std::pmr::polymorphic_allocator<void> allocator_type;
+
+  NonTransferable_aa(std::allocator_arg_t,allocator_type, int x)
+  : NonTransferable_aa(x){}
+};
+template<typename T>
+void
+test01()
 {
   std::pmr::optional<int> oi;
-  std::pmr::optional<NonTransferable> ot(std::move(oi));
+  std::pmr::optional<T> ot(std::move(oi));
   VERIFY(!ot);
 
   std::pmr::optional<int> oi2;
-  std::pmr::optional<NonTransferable> ot2(oi2);
+  std::pmr::optional<T> ot2(oi2);
   VERIFY(!ot);
 
   std::pmr::optional<int> oi3{42};
-  std::pmr::optional<NonTransferable> ot3(std::move(oi3));
+  std::pmr::optional<T> ot3(std::move(oi3));
   VERIFY(ot3 && *ot3 == 42);
 
   std::pmr::optional<int> oi4{666};
-  std::pmr::optional<NonTransferable> ot4(oi4);
+  std::pmr::optional<T> ot4(oi4);
   VERIFY(ot4 && *ot4 == 666);
+}
+int main()
+{
+  test01<NonTransferable>();
+  test01<NonTransferable_aa>();
 }

@@ -95,7 +95,7 @@ namespace pmr {
 
 
       _Optional_payload(_Optional_payload&& __other)
-      noexcept(is_nothrow_move_constructible_v<_Stored_type>)
+      //noexcept(is_nothrow_move_constructible_v<_Stored_type>)
       : _M_pmr(__other._M_pmr)
  	  {
 		if (__other._M_engaged)
@@ -122,8 +122,8 @@ namespace pmr {
 	      
       _Optional_payload&
       operator=(_Optional_payload&& __other)
-	  noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
-				   is_nothrow_move_assignable<_Tp>>)
+	  //noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
+		//		   is_nothrow_move_assignable<_Tp>>)
 	  {
 	if (this->_M_engaged && __other._M_engaged)
 	  this->_M_get() = std::move(__other._M_get());
@@ -163,7 +163,7 @@ namespace pmr {
       template<typename... _Args>
         void
         _M_construct(_Args&&... __args)
-      noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
+      //noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  {
     	  __uses_allocator_construct(polymorphic_allocator<void>(_M_pmr),
 					 std::__addressof(this->_M_payload._M_value),
@@ -224,7 +224,7 @@ template <typename _Tp>
 
 
       _Optional_payload(_Optional_payload&& __other)
-      noexcept(is_nothrow_move_constructible_v<_Stored_type>)
+      //noexcept(is_nothrow_move_constructible_v<_Stored_type>)
       : _M_pmr(__other._M_pmr)
  	  {
 	if (__other._M_engaged)
@@ -249,8 +249,8 @@ template <typename _Tp>
 	      
       _Optional_payload&
       operator=(_Optional_payload&& __other)
-	  noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
-				   is_nothrow_move_assignable<_Tp>>)
+	  //noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
+	//			   is_nothrow_move_assignable<_Tp>>)
 	  {
 	if (this->_M_engaged && __other._M_engaged)
 	  this->_M_get() = std::move(__other._M_get());
@@ -289,7 +289,6 @@ template <typename _Tp>
       template<typename... _Args>
         void
         _M_construct(_Args&&... __args)
-      noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  {
     	  __uses_allocator_construct(polymorphic_allocator<void>(_M_pmr),
 					 std::__addressof(this->_M_payload._M_value),
@@ -350,7 +349,7 @@ template <typename _Tp>
 
 
       _Optional_payload(_Optional_payload&& __other)
-      noexcept(is_nothrow_move_constructible_v<_Stored_type>)
+      //noexcept(is_nothrow_move_constructible_v<_Stored_type>)
  	  {
 		if (__other._M_engaged)
 		{
@@ -376,8 +375,8 @@ template <typename _Tp>
 	      
       _Optional_payload&
       operator=(_Optional_payload&& __other)
-	  noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
-				   is_nothrow_move_assignable<_Tp>>)
+	  //noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
+		//		   is_nothrow_move_assignable<_Tp>>)
 	  {
 	if (this->_M_engaged && __other._M_engaged)
 	  this->_M_get() = std::move(__other._M_get());
@@ -423,7 +422,7 @@ template <typename _Tp>
       template<typename... _Args>
         void
         _M_construct(_Args&&... __args)
-      noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
+      //noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  {
 	  	  memory_resource* __pmr;
 	  	  if (_M_engaged)
@@ -499,7 +498,7 @@ template <typename _Tp>
 
 
       _Optional_payload(_Optional_payload&& __other)
-      noexcept(is_nothrow_move_constructible_v<_Stored_type>)
+      //noexcept(is_nothrow_move_constructible_v<_Stored_type>)
  	  {
 		if (__other._M_engaged)
 		{
@@ -525,8 +524,8 @@ template <typename _Tp>
 	      
       _Optional_payload&
       operator=(_Optional_payload&& __other)
-	  noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
-				   is_nothrow_move_assignable<_Tp>>)
+	  //noexcept(__and_v<is_nothrow_move_constructible<_Tp>,
+      //		   is_nothrow_move_assignable<_Tp>>)
 	  {
 	if (this->_M_engaged && __other._M_engaged)
 	  this->_M_get() = std::move(__other._M_get());
@@ -566,7 +565,7 @@ template <typename _Tp>
       template<typename... _Args>
         void
         _M_construct(_Args&&... __args)
-      noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
+      //noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  {
 	  	  memory_resource* __pmr;
 	  	  if (_M_engaged)
@@ -644,14 +643,14 @@ template <typename _Tp>
 	  template<typename... _Args,
 		   enable_if_t<is_constructible_v<_Tp, _Args&&...>, bool> = false>
 		explicit _Optional_base(in_place_t, _Args&&... __args)
-		noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
+		//noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  {
 			_M_construct(std::forward<_Args>(__args)...);
 	  }
 	  template<typename... _Args,
 		   enable_if_t<is_constructible_v<_Tp, _Args&&...>, bool> = false>
 		explicit _Optional_base(allocator_arg_t, const __Allocator_type& __a, _Args&&... __args)
-		noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
+		//noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  : _M_payload(allocator_arg, __a)
 	  {
 			_M_construct(std::forward<_Args>(__args)...);
@@ -676,7 +675,7 @@ template <typename _Tp>
 
 	
 		_Optional_base(_Optional_base&& __other)
-		noexcept(is_nothrow_move_constructible_v<_Tp>)
+		//noexcept(is_nothrow_move_constructible_v<_Tp>)
 	: _M_payload(std::move(__other._M_payload))
 		{ }
 	
@@ -690,7 +689,7 @@ template <typename _Tp>
 	   template<typename... _Args>
 		void
 		_M_construct(_Args&&... __args)
-		noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
+		//noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 		{
 		  _M_payload._M_construct(
 				   std::forward<_Args>(__args)...);
@@ -1484,8 +1483,8 @@ template <typename _Tp>
       // Swap.
       void
       swap(optional& __other)
-      noexcept(is_nothrow_move_constructible_v<_Tp>
-	       && is_nothrow_swappable_v<_Tp>)
+      //noexcept(is_nothrow_move_constructible_v<_Tp>
+	  //     && is_nothrow_swappable_v<_Tp>)
       {
 	using std::swap;
 
@@ -1502,6 +1501,28 @@ template <typename _Tp>
 	    __other._M_destruct();
 	  }
       }
+
+      void
+      swap(std::optional<_Tp> & __other)
+      //noexcept(is_nothrow_move_constructible_v<_Tp>
+      //     && is_nothrow_swappable_v<_Tp>)
+      {
+    using std::swap;
+
+    if (this->_M_is_engaged() && __other.has_value())
+      swap(this->_M_get(), __other.value());
+    else if (this->_M_is_engaged())
+      {
+        __other.emplace(std::move(this->_M_get()));
+        this->_M_destruct();
+      }
+    else if (__other.has_value())
+      {
+        this->_M_construct(std::move(__other.value()));
+        __other.reset();
+      }
+      }
+
 
       // Observers.
       const _Tp*
@@ -1922,6 +1943,9 @@ template <typename _Tp>
 
 #if __cpp_deduction_guides >= 201606
   template <typename _Tp> optional(_Tp) -> optional<_Tp>;
+  template <typename _Tp> optional(const std::optional<_Tp>&) -> optional<_Tp>;
+  template <typename _Tp> optional(std::optional<_Tp>&&) -> optional<_Tp>;
+  
 #endif
   
 #ifdef __cpp_lib_three_way_comparison
@@ -1941,8 +1965,30 @@ template <typename _Tp>
     { __lhs.swap(__rhs); }
 
   template<typename _Tp>
+    inline enable_if_t<is_move_constructible_v<_Tp> && is_swappable_v<_Tp>>
+    swap(optional<_Tp>& __lhs, std::optional<_Tp>& __rhs)
+    noexcept(noexcept(__lhs.swap(__rhs)))
+    { __lhs.swap(__rhs); }
+
+  template<typename _Tp>
+    inline enable_if_t<is_move_constructible_v<_Tp> && is_swappable_v<_Tp>>
+    swap(std::optional<_Tp>& __lhs, optional<_Tp>& __rhs)
+    noexcept(noexcept(__lhs.swap(__rhs)))
+    { __lhs.swap(__rhs); }
+
+
+
+  template<typename _Tp>
     enable_if_t<!(is_move_constructible_v<_Tp> && is_swappable_v<_Tp>)>
     swap(optional<_Tp>&, optional<_Tp>&) = delete;
+
+  template<typename _Tp>
+    enable_if_t<!(is_move_constructible_v<_Tp> && is_swappable_v<_Tp>)>
+    swap(optional<_Tp>&, std::optional<_Tp>&) = delete;
+
+  template<typename _Tp>
+    enable_if_t<!(is_move_constructible_v<_Tp> && is_swappable_v<_Tp>)>
+    swap(std::optional<_Tp>&, optional<_Tp>&) = delete;
 
   template<typename _Tp>
     optional<decay_t<_Tp>>
