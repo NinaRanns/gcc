@@ -18,7 +18,7 @@
 // { dg-options "-std=gnu++2a" }
 // { dg-do run { target c++2a } }
 #include <testsuite_hooks.h>
-#include "../../../../../include/std/pmroptional"
+#include "../../../../include/std/pmroptional"
 
 struct value_type
 {

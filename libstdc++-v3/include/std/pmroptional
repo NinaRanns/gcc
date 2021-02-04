@@ -47,6 +47,11 @@
 namespace std _GLIBCXX_VISIBILITY(default)
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+template< class _Tp>
+struct uses_allocator< pmr::optional<_Tp>, std::pmr::polymorphic_allocator<void> > : 
+    uses_allocator<_Tp, std::pmr::polymorphic_allocator<void>> { };
+
 namespace pmr {
   /**
    *  @addtogroup utilities
@@ -82,10 +87,10 @@ namespace pmr {
       _Optional_payload() noexcept {};
       
       _Optional_payload(allocator_arg_t, const __Allocator_type& __a) noexcept
-      : _M_pmr(__a.resource()){};
+      : _M_alloc(__a){};
        
       _Optional_payload(const _Optional_payload& __other)
-      : _M_pmr(__other._M_pmr)
+      : _M_alloc(__other._M_alloc)
       {
 		if (__other._M_engaged)
 		{
@@ -96,7 +101,7 @@ namespace pmr {
 
       _Optional_payload(_Optional_payload&& __other)
       //noexcept(is_nothrow_move_constructible_v<_Stored_type>)
-      : _M_pmr(__other._M_pmr)
+      : _M_alloc(__other._M_alloc)
  	  {
 		if (__other._M_engaged)
 		{
@@ -139,9 +144,9 @@ namespace pmr {
 
       struct _Empty_byte { };
 
-	memory_resource* _M_get_allocator() const noexcept
+	__Allocator_type _M_get_allocator() const noexcept
 	{
-		return _M_pmr;
+		return _M_alloc;
 	}
 	
 	template<typename _Up>
@@ -158,14 +163,14 @@ namespace pmr {
       _Storage<_Stored_type> _M_payload;
 
       bool _M_engaged = false;
-      memory_resource* const _M_pmr = std::pmr::get_default_resource();
+      __Allocator_type const _M_alloc;
 
       template<typename... _Args>
         void
         _M_construct(_Args&&... __args)
       //noexcept(is_nothrow_constructible_v<_Stored_type, _Args...>)
 	  {
-    	  __uses_allocator_construct(polymorphic_allocator<void>(_M_pmr),
+    	  __uses_allocator_construct(_M_alloc,
 					 std::__addressof(this->_M_payload._M_value),
 					 std::forward<_Args>(__args)...);
 	      this->_M_engaged = true;
@@ -213,10 +218,10 @@ template <typename _Tp>
       _Optional_payload() noexcept {};
       
       _Optional_payload(allocator_arg_t, const __Allocator_type& __a) noexcept
-      : _M_pmr(__a.resource()){};
+      : _M_alloc(__a){};
        
       _Optional_payload(const _Optional_payload& __other)
-      : _M_pmr(__other._M_pmr)
+      : _M_alloc(__other._M_alloc)
       	{
 	if (__other._M_engaged)
 	  this->_M_construct(__other._M_get());
@@ -225,7 +230,7 @@ template <typename _Tp>
 
       _Optional_payload(_Optional_payload&& __other)
       //noexcept(is_nothrow_move_constructible_v<_Stored_type>)
-      : _M_pmr(__other._M_pmr)
+      : _M_alloc(__other._M_alloc)
  	  {
 	if (__other._M_engaged)
 	  this->_M_construct(std::move(__other._M_get()));
@@ -264,9 +269,9 @@ template <typename _Tp>
 	return *this;
 	  }
 
-	memory_resource* _M_get_allocator() const noexcept
+	__Allocator_type _M_get_allocator() const noexcept
 	{
-		return _M_pmr;
+		return _M_alloc;
 	}
 
 
@@ -284,13 +289,13 @@ template <typename _Tp>
       _Storage<_Stored_type> _M_payload;
 
       bool _M_engaged = false;
-      memory_resource* const _M_pmr = std::pmr::get_default_resource();
+      __Allocator_type const _M_alloc;
 
       template<typename... _Args>
         void
         _M_construct(_Args&&... __args)
 	  {
-    	  __uses_allocator_construct(polymorphic_allocator<void>(_M_pmr),
+    	  __uses_allocator_construct(_M_alloc,
 					 std::__addressof(this->_M_payload._M_value),
 					 std::forward<_Args>(__args)...);
 	      this->_M_engaged = true;
@@ -390,12 +395,12 @@ template <typename _Tp>
 	return *this;
 	  }
 
-	memory_resource* _M_get_allocator() const noexcept
+	__Allocator_type _M_get_allocator() const noexcept
 	{
 	  	  memory_resource* __pmr;
 	  	  if (_M_engaged)
 	  	  {	
-	  	    __pmr = this->_M_payload._M_value.get_allocator().resource(); 
+	  	    __pmr = this->_M_payload._M_value.get_allocator(); 
 	  	  } else {
 	  	  	__pmr = this->_M_payload._M_pmr;
 	  	  }
@@ -538,11 +543,11 @@ template <typename _Tp>
 	  }
 	return *this;
 	  }
-	memory_resource* _M_get_allocator() const noexcept
+	__Allocator_type _M_get_allocator() const noexcept
 	{
   	  if (_M_engaged)
 	 {	
-	 	return this->_M_payload._M_value.get_allocator().resource(); 
+	 	return this->_M_payload._M_value.get_allocator(); 
 	 }
 	 return this->_M_payload._M_pmr;
 	}
@@ -723,7 +728,7 @@ template <typename _Tp>
 		}
 	
  
-	  memory_resource* _M_get_allocator() const noexcept
+	  __Allocator_type _M_get_allocator() const noexcept
 	  {
 		return _M_payload._M_get_allocator();
 	  }
@@ -732,6 +737,8 @@ template <typename _Tp>
 		_Optional_payload<_Tp> _M_payload;
 	};
 
+
+  
   template<typename _Tp>
   concept _AllocAware = uses_allocator<_Tp, pmr::polymorphic_allocator<void>>::value;
 
@@ -775,7 +782,18 @@ template <typename _Tp>
 
     
   template<typename _Tp>
-  class optional : public std::optional<_Tp>
+  class optional : public std::optional<_Tp>,
+  private _Enable_copy_move<
+    // Copy constructor.
+    is_copy_constructible_v<_Tp>,
+    // Copy assignment.
+    __and_v<is_copy_constructible<_Tp>, is_copy_assignable<_Tp>>,
+    // Move constructor.
+    is_move_constructible_v<_Tp>,
+    // Move assignment.
+    __and_v<is_move_constructible<_Tp>, is_move_assignable<_Tp>>,
+    // Unique tag type.
+    optional<_Tp>>
   {
    private:
       using _Base = std::optional<_Tp>;
@@ -794,6 +812,15 @@ template <typename _Tp>
       constexpr optional() = default;
 
       constexpr optional(nullopt_t) noexcept { }
+      
+      constexpr
+      optional(const std::optional<_Tp>& __t)
+      : _Base(__t) { }
+
+      constexpr
+        optional(std::optional<_Tp>&& __t)
+      : _Base(std::move(__t)) { }
+
 
       // Converting constructors for engaged optionals.
       template<typename _Up = _Tp,
@@ -842,6 +869,7 @@ template <typename _Tp>
     
       template <typename _Up,
         _Requires<
+               __not_<is_same<_Tp, _Up>>,
               is_constructible<_Tp, _Up&&>,
               __not_<is_convertible<_Up&&, _Tp>>,
               __not_<__converts_from_optional<_Tp, _Up>>> = false>
@@ -852,6 +880,7 @@ template <typename _Tp>
 
       template<typename _Up,
            _Requires<
+             __not_<is_same<_Tp, _Up>>,
              is_constructible<_Tp, const _Up&>,
              is_convertible<const _Up&, _Tp>,
              __not_<__converts_from_optional<_Tp, _Up>>> = true>
@@ -861,6 +890,7 @@ template <typename _Tp>
 
       template<typename _Up,
            _Requires<
+           __not_<is_same<_Tp, _Up>>,
              is_constructible<_Tp, const _Up&>,
              __not_<is_convertible<const _Up&, _Tp>>,
              __not_<__converts_from_optional<_Tp, _Up>>> = false>
@@ -870,6 +900,7 @@ template <typename _Tp>
 
       template <typename _Up,
         _Requires<
+        __not_<is_same<_Tp, _Up>>,
               is_constructible<_Tp, _Up&&>,
               is_convertible<_Up&&, _Tp>,
               __not_<__converts_from_optional<_Tp, _Up>>> = true>
@@ -879,6 +910,7 @@ template <typename _Tp>
 
       template <typename _Up,
         _Requires<
+        __not_<is_same<_Tp, _Up>>,
               is_constructible<_Tp, _Up&&>,
               __not_<is_convertible<_Up&&, _Tp>>,
               __not_<__converts_from_optional<_Tp, _Up>>> = false>
