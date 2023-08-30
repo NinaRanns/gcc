@@ -156,6 +156,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         return static_cast<variant<_Types...>&&>(__rhs);
     }
 
+  // forward declaration for as-variant purposes
+  template<typename _Alloc, typename... _Types> class basic_variant;
+
 namespace __detail
 {
 namespace __variant
@@ -206,6 +209,29 @@ namespace __variant
     constexpr const std::variant<_Types...>&&
     __as(const std::variant<_Types...>&& __v) noexcept
     { return std::move(__v); }
+
+
+
+  template<typename _Alloc, typename... _Types>
+    constexpr std::basic_variant<_Alloc, _Types...>&
+    __as(std::basic_variant<_Alloc, _Types...>& __v) noexcept
+  { return __v; }
+
+  template<typename _Alloc, typename... _Types>
+    constexpr const std::basic_variant<_Alloc, _Types...>&
+    __as(const std::basic_variant<_Alloc, _Types...>& __v) noexcept
+  { return __v; }
+
+  template<typename _Alloc, typename... _Types>
+    constexpr std::basic_variant<_Alloc, _Types...>&&
+    __as(std::basic_variant<_Alloc, _Types...>&& __v) noexcept
+  { return std::move(__v); }
+
+  template<typename _Alloc, typename... _Types>
+    constexpr const std::basic_variant<_Alloc, _Types...>&&
+    __as(const std::basic_variant<_Alloc, _Types...>&& __v) noexcept
+  { return std::move(__v); }
+
 
   // For C++17:
   // _Uninitialized<T> is guaranteed to be a trivially destructible type,
@@ -319,7 +345,9 @@ namespace __variant
   template<size_t _Np, typename _Variant>
     constexpr decltype(auto)
     __get(_Variant&& __v) noexcept
-    { return __variant::__get_n<_Np>(std::forward<_Variant>(__v)._M_u); }
+    { return __variant::__get_n<_Np>(std::forward<_Variant>(__v)._M_get_u()); }
+
+
 
   template<typename... _Types>
     struct _Traits
@@ -488,6 +516,19 @@ namespace __variant
       }
 
       _Variadic_union<_Types...> _M_u;
+      constexpr const _Variadic_union<_Types...>& _M_get_u() const & noexcept
+      { return _M_u; }
+
+      constexpr _Variadic_union<_Types...>& _M_get_u() & noexcept
+      { return _M_u; }
+
+      constexpr const _Variadic_union<_Types...>&& _M_get_u() const && noexcept
+      { return std::move(_M_u); }
+
+      constexpr _Variadic_union<_Types...>&& _M_get_u() && noexcept
+      { return std::move(_M_u); }
+
+
       using __index_type = __select_index<_Types...>;
       __index_type _M_index;
     };
@@ -526,6 +567,20 @@ namespace __variant
       }
 
       _Variadic_union<_Types...> _M_u;
+      constexpr const _Variadic_union<_Types...>& _M_get_u() const & noexcept
+      { return _M_u; }
+
+      constexpr _Variadic_union<_Types...>& _M_get_u() & noexcept
+      { return _M_u; }
+
+      constexpr const _Variadic_union<_Types...>&& _M_get_u() const && noexcept
+      { return std::move(_M_u); }
+
+      constexpr _Variadic_union<_Types...>&& _M_get_u() && noexcept
+      { return std::move(_M_u); }
+
+
+
       using __index_type = __select_index<_Types...>;
       __index_type _M_index;
     };
@@ -813,6 +868,10 @@ namespace __variant
       template <typename... _Types>
 	struct _Variant_never_valueless<variant<_Types...>>
 	: bool_constant<__variant::__never_valueless<_Types...>()> {};
+
+      template <typename _Alloc, typename... _Types>
+    struct _Variant_never_valueless<basic_variant<_Alloc, _Types...>>
+    : bool_constant<__variant::__never_valueless<_Types...>()> {};
 
       static constexpr bool value =
 	(is_same_v<_Maybe_variant_cookie, __variant_cookie>
@@ -1349,6 +1408,9 @@ namespace __variant
       template <typename... _UTypes, typename _Tp>
 	friend _GLIBCXX20_CONSTEXPR decltype(auto)
 	__variant_cast(_Tp&&);
+
+    template<typename _Alloc, typename... _UTypes>
+    friend class basic_variant;
 
       static_assert(sizeof...(_Types) > 0,
 		    "variant must have at least one alternative");
