@@ -15,15 +15,18 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// { dg-options "-std=gnu++2a" }
-// { dg-do compile { target c++2a } }
+// { dg-options "-std=gnu++20" }
+// { dg-do compile { target c++20 } }
 
+#include <testsuite_hooks.h>
+#include "../../../../include/std/basic_variant.h"
 #include <variant>
+#include <memory>
 
 void
 test01()
 {
-  using V = std::variant<int, int>;
+  using V = std::basic_variant<std::allocator<int>, int, int>;
   constexpr auto I0 = std::in_place_index<0>;
   constexpr auto I1 = std::in_place_index<1>;
 
@@ -44,11 +47,21 @@ test01()
 void
 test02()
 {
-  static_assert( std::is_eq(std::monostate{} <=> std::monostate{}) );
-  static_assert( std::monostate{} == std::monostate{} );
-  static_assert( std::monostate{} <= std::monostate{} );
-  static_assert( std::monostate{} >= std::monostate{} );
-  static_assert( !(std::monostate{} != std::monostate{}) );
-  static_assert( !(std::monostate{} < std::monostate{}) );
-  static_assert( !(std::monostate{} > std::monostate{}) );
+  using V = std::basic_variant<std::allocator<int>, int, int>;
+  using W = std::basic_variant<std::pmr::polymorphic_allocator<int>, int, int>;
+  constexpr auto I0 = std::in_place_index<0>;
+  constexpr auto I1 = std::in_place_index<1>;
+
+  static_assert( std::is_eq(V{I0, 0} <=> W{I0, 0})  );
+  static_assert( std::is_eq(V{I0, 1} <=> W{I0, 1})  );
+
+  static_assert( std::is_lt(V{I0, 0} <=> W{I1, 0})  );
+  static_assert( std::is_lt(V{I0, 1} <=> W{I1, 0})  );
+
+  static_assert( std::is_gt(V{I0, 1} <=> W{I0, 0})  );
+  static_assert( std::is_gt(V{I1, 0} <=> W{I0, 1})  );
+
+  static_assert( V{I0, 0} == W{I0, 0}  );
+  static_assert( V{I0, 0} != W{I1, 0}  );
+  static_assert( V{I1, 0} != W{I1, 1}  );
 }

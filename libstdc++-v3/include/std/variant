@@ -1409,8 +1409,7 @@ namespace __variant
 	friend _GLIBCXX20_CONSTEXPR decltype(auto)
 	__variant_cast(_Tp&&);
 
-    template<typename _Alloc, typename... _UTypes>
-    friend class basic_variant;
+
 
       static_assert(sizeof...(_Types) > 0,
 		    "variant must have at least one alternative");
