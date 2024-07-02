@@ -28,10 +28,16 @@ void f5(int *i) pre(gi++); //  ok, non automatic storage
 // todo structured binding test
 // lambda tests
 // template tests
+template<typename T>
+bool is_const( T &){ return false;}
+
+template<typename T>
+bool is_const(const T &){ return true;}
+
 
 struct S{
 
-  int i;
+  int i = 5;
   mutable int mi;
   int *pi = &i;
   int &ri = i;
@@ -40,20 +46,83 @@ struct S{
 
   void f(){
     contract_assert(i++); // { dg-error "increment of member" }
+    i++;
     contract_assert(mi++); // ok, mutable
+    mi++;
 
     contract_assert(ri++); // ok, not deep const
+    ri++;
     contract_assert(rmi++); // ok, not deep const
+    rmi++;
 
     contract_assert(pi++); // { dg-error "increment of member" }
     contract_assert((*pi)++); // ok, not deep const
-
+    pi++;
 
     contract_assert(pmi++); // { dg-error "increment of member" }
+    pmi++;
     contract_assert((*pmi)++); // ok, not deep const
-  }
 
+    contract_assert(gi++); // ok, not automatic storage
+    contract_assert(gri++); // ok, not automatic storage
+
+    contract_assert(si++); // ok, static member
+
+
+    contract_assert([]{
+			    struct Local {
+				int x;
+				  void mf() {
+				    x++;}
+			    };
+			    return true;
+			 }());
+
+    }
+
+    void constf() const {
+      contract_assert(i++); // { dg-error "increment of member" }
+      contract_assert(mi++); // ok, mutable
+
+      contract_assert(ri++); // ok, not deep const
+      ri++;
+      contract_assert(rmi++); // ok, not deep const
+      rmi++;
+
+      contract_assert(pi++); // { dg-error "increment of member" }
+      contract_assert((*pi)++); // ok, not deep const
+
+      contract_assert(pmi++); // { dg-error "increment of member" }
+      contract_assert((*pmi)++); // ok, not deep const
+
+      contract_assert(gi++); // ok, not automatic storage
+      contract_assert(gri++); // ok, not automatic storage
+
+      contract_assert(si++); // ok, static member
+
+
+      contract_assert([]{
+  			    struct Local {
+  				int x;
+  				  void mf() {
+  				    x++;}
+  			    };
+  			    return true;
+  			 }());
+
+      }
+
+    void param_check(int a, int &b, int *c) {
+	contract_assert(a++); // { dg-error "increment of" }
+	contract_assert(b++); // { dg-error "increment of" }
+	contract_assert(c++); // { dg-error "increment of" }
+	contract_assert((*c)++); // ok, not deep const
+      }
+
+
+    static int si;
 };
+
 
 template <class T> void perfect_forward(T&& t) pre(++t) {} // { dg-error "increment of read-only" }
 
@@ -78,6 +147,7 @@ void template_related_tests()
   S2().perfect_forward();
   ((const S2&&)S2()).perfect_forward();
 }
+int S::si = 5;
 
 void class_related_tests()
 {
@@ -86,7 +156,15 @@ void class_related_tests()
 
 
 }
+/*
+void lambda_check()
+	pre([](){ int i = 2; i++;})
+{
+  contract_assert([](){int i = 2;
+			  i++;
+			});
 
+}*/
 int main()
 {
   int i;
@@ -112,5 +190,6 @@ int main()
   contract_assert(i == 4 ? i : i ); // ok, no name clash
 
 
+  S s;
   return 0;
 }

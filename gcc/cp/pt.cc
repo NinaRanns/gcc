@@ -48,6 +48,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "target.h"
 #include "builtins.h"
 #include "omp-general.h"
+#include "print-tree.h"
 
 /* The type of functions taking a tree, and some additional data, and
    returning an int.  */
@@ -21826,6 +21827,7 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
     case NON_LVALUE_EXPR:
     case VIEW_CONVERT_EXPR:
       {
+
 	tree op = RECUR (TREE_OPERAND (t, 0));
 
 	if (location_wrapper_p (t))
@@ -21838,9 +21840,9 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	  /* force_paren_expr can also create a VIEW_CONVERT_EXPR.  */
 	  RETURN (finish_parenthesized_expr (op));
 
-	if (flag_contracts_nonattr && !flag_contracts_nonattr_noconst
-	    && processing_contract_condition)
-	    op = constify_contract_access(op);
+	if (CONTRACT_CONSTIFIED_P (t))
+	  /* re-wrap the operand in a constified CVE */
+	  RETURN (view_as_const(op));
 
 	/* Otherwise, we're dealing with a wrapper to make a C++20 template
 	   parameter object const.  */
@@ -21863,6 +21865,7 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 		 another TEMPLATE_PARM_INDEX).  */
 	      op = build1 (VIEW_CONVERT_EXPR, type, op);
 	  }
+
 	RETURN (op);
       }
 

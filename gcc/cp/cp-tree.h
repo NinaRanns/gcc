@@ -502,6 +502,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       LAMBDA_EXPR_STATIC_P (in LAMBDA_EXPR)
       TARGET_EXPR_ELIDING_P (in TARGET_EXPR)
       contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
+      CONTRACT_CONSTIFIED_ID_P (in VIEW_CONVERT_EXPR)
    4: IDENTIFIER_MARKED (IDENTIFIER_NODEs)
       TREE_HAS_CONSTRUCTOR (in INDIRECT_REF, SAVE_EXPR, CONSTRUCTOR,
 	  CALL_EXPR, or FIELD_DECL).
@@ -4229,6 +4230,12 @@ templated_operator_saved_lookups (tree t)
 
 #define REF_PARENTHESIZED_P(NODE) \
   TREE_LANG_FLAG_2 (TREE_CHECK5 ((NODE), COMPONENT_REF, INDIRECT_REF, SCOPE_REF, VIEW_CONVERT_EXPR, PAREN_EXPR))
+
+/* Indicates whether a identifier has been constified because it appears in a
+ * contract condition.  */
+
+#define CONTRACT_CONSTIFIED_P(NODE) \
+  TREE_LANG_FLAG_3 (TREE_CHECK ((NODE), VIEW_CONVERT_EXPR))
 
 /* Nonzero if this AGGR_INIT_EXPR provides for initialization via a
    constructor call, rather than an ordinary function call.  */

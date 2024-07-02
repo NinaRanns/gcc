@@ -72,5 +72,8 @@ struct Baz
   void g(int x) pre(x, x); // { dg-error "expected conditional-expression" }
   void h(int x) post(x = 0); // { dg-error "expected conditional-expression" }
   void i(int x) post(x, x); // { dg-error "expected conditional-expression" }
+  void j(int x) post(x)]]; // { dg-error "expected " }
+  void k(int x) [[ post : x]]); // { dg-error "expected " }
+
 };
 		  

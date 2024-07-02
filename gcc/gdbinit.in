@@ -24,7 +24,7 @@ document help-gcc-hooks
 GCC gdbinit file introduces several debugging shorthands:
 
     pr [rtx], prl [rtx], prc [rtx], pi [rtx_insn],
-    pt [tree], pct [tree], ptc [tree], trt [tree],
+    pt2 [tree], pct [tree], ptc [tree], trt [tree],
     pgs [tree], pge [tree], pdn [tree], ptn [tree],
     pgg [gimple], pgq [gimple_seq],
     pmz [mpz_t],
@@ -80,12 +80,12 @@ There is also debug_rtx_find (rtx, uid) that will scan a list for UID and print
 it using debug_rtx_list. Usage example: set $foo=debug_rtx_find(first, 42)
 end
 
-define pt
+define pt2
 eval "set $debug_arg = $%s", $argc ? "arg0" : ""
 call debug_tree ($debug_arg)
 end
 
-document pt
+document pt2
 GCC hook: debug_tree (tree)
 Print the full structure of given tree.
 See also 'help-gcc-hooks'.

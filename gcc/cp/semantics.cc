@@ -4613,8 +4613,9 @@ finish_id_expression_1 (tree id_expression,
 						   tf_warning_or_error);
 		}
 	    }
-
+	  //debug_tree(decl);
 	  decl = convert_from_reference (decl);
+	  //debug_tree(decl);
 	}
     }
 

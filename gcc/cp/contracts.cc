@@ -162,6 +162,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "print-tree.h"
 #include "stor-layout.h"
 #include "intl.h"
+#include "print-tree.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -1949,6 +1950,8 @@ tree view_as_const(tree decl)
   ctype = cp_build_qualified_type (ctype, (cp_type_quals (ctype)
 						     | TYPE_QUAL_CONST));
   decl = build1 (VIEW_CONVERT_EXPR, ctype, decl);
+
+  CONTRACT_CONSTIFIED_P (decl) = true;
   return decl;
 }
 
@@ -1973,6 +1976,7 @@ constify_contract_access(tree decl)
 		 || (TREE_CODE (TREE_OPERAND (decl, 0)) == PARM_DECL)))))
   {
       decl = view_as_const (decl);
+
   }
 
   return decl;
