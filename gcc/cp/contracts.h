@@ -301,5 +301,6 @@ extern void finish_function_contracts		(tree);
 extern void set_contract_functions		(tree, tree, tree);
 extern tree build_contract_check		(tree);
 extern void emit_assertion			(tree);
+extern void init_contract_processing		(void);
 
 #endif /* ! GCC_CP_CONTRACT_H */

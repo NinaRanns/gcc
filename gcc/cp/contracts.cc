@@ -167,6 +167,8 @@ const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
 };
 
+static GTY(()) tree violation_fn;
+
 bool valid_configs[CCS_MAYBE + 1][CCS_MAYBE + 1] = {
   { 0, 0, 0, 0, 0, },
   { 0, 1, 0, 0, 0, },
@@ -1776,7 +1778,6 @@ build_contract_handler_call (tree contract,
 			     contract_continuation cmode)
 {
   tree violation = build_contract_violation (contract, cmode);
-  tree violation_fn = declare_handle_contract_violation ();
   tree call = build_call_n (violation_fn, 1, build_address (violation));
   finish_expr_stmt (call);
 }
@@ -2247,6 +2248,18 @@ inherit_base_contracts (tree overrider, tree basefn)
     }
 
   set_decl_contracts (overrider, contract_attrs);
+}
+
+/* Sets up all the contracts stuff that needs to be initialized at the
+   start of compilation.  */
+
+void
+init_contract_processing (void)
+{
+
+  init_terminate_fn();
+
+  violation_fn = declare_handle_contract_violation ();
 }
 
 #include "gt-cp-contracts.h"
