@@ -13082,8 +13082,8 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
       if (cp_contract_assertion_p (std_attrs))
 	{
 	  /* Add the assertion as a statement in the current block.  */
-	  gcc_assert (!statement || statement == error_mark_node);
-	  emit_assertion (std_attrs);
+	  if (!statement)
+	    emit_assertion (std_attrs);
 	  std_attrs = NULL_TREE;
 	}
     }
