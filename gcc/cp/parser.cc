@@ -12936,7 +12936,9 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	      /* Parse the condition, ensuring that parameters or the return variable
 	       aren't flagged for use outside the body of a function.  */
 	      ++processing_contract_condition;
+	      begin_scope (sk_contract, current_function_decl);
 	      cp_expr condition = cp_parser_conditional_expression (parser);
+	      pop_bindings_and_leave_scope ();
 	      --processing_contract_condition;
 
 	      /* revert (any) constification of the current class object */
@@ -31094,20 +31096,22 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute,
       /* Parse the condition, ensuring that parameters or the return variable
 	 aren't flagged for use outside the body of a function.  */
       bool old_flag_contracts_nonattr_noconst = flag_contracts_nonattr_noconst;
-      ++processing_contract_condition;
-      if (postcondition_p)
-	++processing_contract_postcondition;
       /* Do we have an override for const-ification?  */
       if (flag_contracts_nonattr && !modifier.error_p
 	  && (modifier.mutable_p
 	      || (flag_contracts_nonattr_const_keyword && !modifier.const_p)))
 	flag_contracts_nonattr_noconst = true;
 
+      ++processing_contract_condition;
+      if (postcondition_p)
+	++processing_contract_postcondition;
+      begin_scope (sk_contract, current_function_decl);
       cp_expr condition = cp_parser_conditional_expression (parser);
+      pop_bindings_and_leave_scope ();
       if (postcondition_p)
 	--processing_contract_postcondition;
-      flag_contracts_nonattr_noconst = old_flag_contracts_nonattr_noconst;
       --processing_contract_condition;
+      flag_contracts_nonattr_noconst = old_flag_contracts_nonattr_noconst;
 
 	/* For natural syntax, we eat the parens here. For the attribute
 	syntax, it will be done one level up, we just need to skip to it. */
@@ -31228,7 +31232,9 @@ void cp_parser_late_contract_condition (cp_parser *parser,
   ++processing_contract_condition;
   if (POSTCONDITION_P (contract))
     ++processing_contract_postcondition;
+  begin_scope (sk_contract, fn);
   condition = cp_parser_conditional_expression (parser);
+  pop_bindings_and_leave_scope ();
   if (POSTCONDITION_P (contract))
     --processing_contract_postcondition;
   --processing_contract_condition;
