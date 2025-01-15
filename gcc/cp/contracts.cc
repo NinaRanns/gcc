@@ -1803,7 +1803,7 @@ set_contract_wrapper_function (tree decl, tree wrapper)
    are only checked if check_post is true.  */
 
 static tree
-build_wrapper_function (tree fndecl, bool is_cvh, bool check_post = true)
+build_contract_wrapper_function (tree fndecl, bool is_cvh, bool check_post = true)
 {
   if (TREE_TYPE (fndecl) == error_mark_node)
     return error_mark_node;
@@ -2280,7 +2280,8 @@ declare_noexcept_cvh_wrapper (tree fncvh_decl)
   tree wrapdecl = get_contract_wrapper_function (fncvh_decl);
 
   if (!wrapdecl){
-      wrapdecl = build_wrapper_function (fncvh_decl, /* is_cvh*/ true);
+      wrapdecl = build_contract_wrapper_function (fncvh_decl,
+						  /* is_cvh*/ true);
       wrapdecl = pushdecl_top_level (wrapdecl);
       set_contract_wrapper_function (fncvh_decl, wrapdecl);
   }
@@ -3223,9 +3224,9 @@ maybe_contract_wrap_call (tree fndecl, tree call)
   tree wrapdecl = get_contract_wrapper_function (fndecl);
 
   if (!wrapdecl){
-      wrapdecl = build_wrapper_function (fndecl,
-					 /* is_cvh*/ false,
-					 check_post );
+      wrapdecl = build_contract_wrapper_function (fndecl,
+						  /* is_cvh*/ false,
+						  check_post );
       wrapdecl = pushdecl_top_level (wrapdecl);
       set_contract_wrapper_function (fndecl, wrapdecl);
   }
@@ -3250,7 +3251,7 @@ maybe_contract_wrap_call (tree fndecl, tree call)
 
 /* Define a wrapper function. This is either a caller contract check wrapper
    or a noexcept wrapper around the contract violation handler. */
-bool define_wrapper_func(const tree& fndecl, const tree& wrapdecl, void*)
+bool define_contract_wrapper_func(const tree& fndecl, const tree& wrapdecl, void*)
 {
   start_preparsed_function (wrapdecl, /*DECL_ATTRIBUTES (wrapdecl)*/ NULL_TREE,
 			   SF_DEFAULT | SF_PRE_PARSED);
@@ -3287,7 +3288,6 @@ bool define_wrapper_func(const tree& fndecl, const tree& wrapdecl, void*)
 			    args->length (),
 			    args->address ());
 
-
   CALL_FROM_THUNK_P (call) = true;
 
   finish_return_stmt (call);
@@ -3304,7 +3304,7 @@ void emit_contract_wrapper_func()
 {
   if (!decl_wrapper_fn || decl_wrapper_fn->is_empty ()) return;
 
-  decl_wrapper_fn->traverse<void *, define_wrapper_func>(NULL);
+  decl_wrapper_fn->traverse<void *, define_contract_wrapper_func>(NULL);
 
   decl_wrapper_fn->empty ();
 
