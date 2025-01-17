@@ -2262,12 +2262,18 @@ declare_handle_contract_violation ()
   tree fntype = build_function_type_list (void_type_node, argtype, NULL_TREE);
 
   push_nested_namespace (global_namespace);
-  tree fn = build_cp_library_fn_ptr ("handle_contract_violation", fntype,
+  tree fndecl = build_cp_library_fn_ptr ("handle_contract_violation", fntype,
 				     ECF_COLD);
-  pushdecl_namespace_level (fn, /*hiding*/true);
+  pushdecl_namespace_level (fndecl, /*hiding*/true);
   pop_nested_namespace (global_namespace);
 
-  return fn;
+  /* Build the parameter.  */
+  tree parmdecl = cp_build_parm_decl (fndecl, NULL_TREE, argtype);
+  TREE_USED (parmdecl) = 1;
+  DECL_READ_P (parmdecl) = 1;
+  DECL_ARGUMENTS (fndecl) = parmdecl;
+
+  return fndecl;
 }
 
 /* Return noexcept wrapper around handle_contract_violation(), declaring
@@ -2353,22 +2359,21 @@ build_contract_check (tree contract)
 				tf_warning_or_error);
       finish_if_stmt_cond (cond, if_stmt);
       /* Using the P2900 names here c++2a ENFORCE=NEVER, OBSERVE=MAYBE.  */
-      if (semantic == CCS_ENFORCE || semantic == CCS_OBSERVE)
+      if (semantic == CCS_ENFORCE || semantic == CCS_OBSERVE
+	  || semantic == CCS_NOEXCEPT_ENFORCE)
 	{
-	  tree violation = build_contract_violation (contract, /*is_const*/true);
-	  build_contract_handler_call (violation);
+	  tree violation = build_contract_violation (contract,
+						     /*is_const*/true);
+	  build_contract_handler_call (violation,
+				       semantic == CCS_NOEXCEPT_ENFORCE);
 	}
+
       if (semantic == CCS_QUICK)
 	{
 	  tree fn = builtin_decl_explicit (BUILT_IN_ABORT);
 	  releasing_vec vec;
 	  finish_expr_stmt (finish_call_expr (fn, &vec, false, false,
 					      tf_warning_or_error));
-	}
-      if (semantic == CCS_NOEXCEPT_ENFORCE)
-	{
-	  tree violation = build_contract_violation (contract, /*is_const*/true);
-	  build_contract_handler_call (violation, /*noexcept_wrap*/ true);
 	}
       else if (semantic == CCS_ENFORCE)
 	/* FIXME: we should not call this when exceptions are disabled.  */
@@ -2396,7 +2401,8 @@ build_contract_check (tree contract)
   /* We don't need to track whether we had an exception if there will be no
      violation object or handler.  */
   tree excp_ = NULL_TREE;
-  if (semantic == CCS_NEVER || semantic == CCS_MAYBE)
+  if (semantic == CCS_ENFORCE || semantic == CCS_OBSERVE
+      || semantic ==CCS_NOEXCEPT_ENFORCE)
     {
       excp_ = build_decl (loc, VAR_DECL, NULL, boolean_type_node);
       /* compiler-generated.  */
@@ -2411,7 +2417,8 @@ build_contract_check (tree contract)
   BIND_EXPR_VARS (cc_bind) = cond_;
 
   tree violation = NULL_TREE;
-  if (semantic == CCS_NEVER || semantic == CCS_MAYBE)
+  if (semantic == CCS_ENFORCE || semantic == CCS_OBSERVE
+      || semantic == CCS_NOEXCEPT_ENFORCE)
     violation = build_contract_violation (contract, /*is_const*/false);
 
   /* Wrap the contract check in a try-catch.  */
@@ -2423,7 +2430,8 @@ build_contract_check (tree contract)
 
   tree handler = begin_handler ();
   finish_handler_parms (NULL_TREE, handler); /* catch (...) */
-  if (semantic == CCS_NEVER || semantic == CCS_MAYBE)
+  if (semantic == CCS_ENFORCE || semantic == CCS_OBSERVE
+      || semantic == CCS_NOEXCEPT_ENFORCE)
     {
       /* Update the violation object type.  */
       tree v_type = get_pseudo_contract_violation_type ();
@@ -2434,7 +2442,7 @@ build_contract_check (tree contract)
       r = cp_build_init_expr (r, build_int_cst (integer_type_node,
 					    CDM_EVAL_EXCEPTION));
       finish_expr_stmt (r);
-      build_contract_handler_call (violation);
+      build_contract_handler_call (violation, semantic == CCS_NOEXCEPT_ENFORCE);
       /* Note we had an exception.  */
       finish_expr_stmt (cp_build_init_expr (excp_, boolean_true_node));
     }
@@ -2452,7 +2460,8 @@ build_contract_check (tree contract)
 				tf_warning_or_error);
   finish_if_stmt_cond (cond, if_not_cond);
 
-  if (semantic == CCS_NEVER || semantic == CCS_MAYBE)
+  if (semantic == CCS_ENFORCE || semantic == CCS_OBSERVE
+      || semantic == CCS_NOEXCEPT_ENFORCE)
     {
       tree if_not_excp = begin_if_stmt ();
       cond = build_x_unary_op (loc, TRUTH_NOT_EXPR, excp_, NULL_TREE,
@@ -2462,6 +2471,7 @@ build_contract_check (tree contract)
       finish_then_clause (if_not_excp);
       finish_if_stmt (if_not_excp);
     }
+
   if (semantic == CCS_QUICK)
     {
       tree fn = builtin_decl_explicit (BUILT_IN_ABORT);
@@ -2469,7 +2479,7 @@ build_contract_check (tree contract)
       finish_expr_stmt (finish_call_expr (fn, &vec, false, false,
 					  tf_warning_or_error));
     }
-  else if (semantic == CCS_ENFORCE)
+  else if (semantic == CCS_ENFORCE || semantic == CCS_NOEXCEPT_ENFORCE)
     /* FIXME: we should not call this when exceptions are disabled.  */
     finish_expr_stmt (build_call_a (terminate_fn, 0, nullptr));
   finish_then_clause (if_not_cond);
