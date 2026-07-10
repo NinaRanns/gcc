@@ -51,6 +51,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "builtins.h"
 #include "contracts.h"
 #include "analyzer/analyzer-language.h"
+#include "profiles.h"
 
 
 /* The lexer.  */
@@ -17327,7 +17328,8 @@ cp_parser_module_attributes_opt (cp_parser *parser)
   tree attrs = cp_parser_attributes_opt (parser);
   for (tree attr = attrs; attr; attr = TREE_CHAIN (attr))
     if (!attribute_ignored_p (attr)
-	&& !is_attribute_p ("__translated", get_attribute_name (attr)))
+	&& !is_attribute_p ("__translated", get_attribute_name (attr))
+	&& !(flag_profiles && is_attribute_namespace_p ("profiles", attr)))
       {
 	warning_at (loc, OPT_Wattributes, "attribute ignored");
 	break;
@@ -33516,6 +33518,503 @@ cp_parser_omp_sequence_args (cp_parser *parser, tree attribute)
 					   /*consume_paren=*/true);
 }
 
+/* Return true if TOKEN is an operator-or-punctuator token.  */
+
+static bool
+cp_token_is_operator_or_punctuator_p (cp_token *token)
+{
+  return token->type <= CPP_LAST_PUNCTUATOR;
+}
+
+/* Consume a single non-comma balanced-token used as a profile-argument
+   value.  Return true and consume the balanced-token on success; return
+   false without consuming anything on failure.
+
+   Unlike cp_parser_skip_balanced_tokens, this stays within the enclosing
+   scope: a closing bracket that would take a nesting counter below zero
+   marks the end of the enclosing profile-argument-list, so it is a failure
+   rather than something to scan past.  This is what makes a missing value
+   such as the ')' in 'name:' a hard error regardless of what tokens
+   follow on later lines.
+
+   A comma is a balanced-token but is excluded here; callers reject it
+   separately so the diagnostic can be produced without consuming it.  */
+
+static bool
+cp_parser_profiles_consume_balanced_token (cp_parser *parser)
+{
+  switch (cp_lexer_peek_token (parser->lexer)->type)
+    {
+    case CPP_EOF:
+    case CPP_CLOSE_PAREN:
+    case CPP_CLOSE_BRACE:
+    case CPP_CLOSE_SQUARE:
+      return false;
+    default:
+      break;
+    }
+
+  size_t n = 1;
+  int nparens = 0, nbraces = 0, nsquares = 0;
+  do
+    switch (cp_lexer_peek_nth_token (parser->lexer, n++)->type)
+      {
+      case CPP_EOF:
+	/* Ran out of tokens before the balanced-token was terminated.  */
+	return false;
+      case CPP_OPEN_PAREN:
+	++nparens;
+	break;
+      case CPP_OPEN_BRACE:
+	++nbraces;
+	break;
+      case CPP_OPEN_SQUARE:
+	++nsquares;
+	break;
+      case CPP_CLOSE_PAREN:
+	if (--nparens < 0)
+	  return false;
+	break;
+      case CPP_CLOSE_BRACE:
+	if (--nbraces < 0)
+	  return false;
+	break;
+      case CPP_CLOSE_SQUARE:
+	if (--nsquares < 0)
+	  return false;
+	break;
+      default:
+	break;
+      }
+  while (nparens || nbraces || nsquares);
+
+  for (; --n; )
+    cp_lexer_consume_token (parser->lexer);
+  return true;
+}
+
+/* Parse a profile-argument
+
+profile-argument:
+   non-operator-non-punctuator-token
+   identifier : non-comma-balanced-token
+
+ non-operator-non-punctuator-token:
+   Any token other than an operator-or-punctuator
+ non-comma-balanced-token:
+   Any balanced-token other than comma
+
+   SUPPRESS_P is true for the arguments of profiles::suppress, where the
+   framework defines `justification:', whose value must be a string-literal
+   ([decl.profile.suppress]/2).  Elsewhere the arguments are the profile's.
+
+*/
+
+static tree
+cp_parser_profiles_argument (cp_parser *parser, bool suppress_p)
+{
+  tree arg = NULL_TREE;
+  cp_token *next_token = cp_lexer_peek_token (parser->lexer);
+
+  /* identifier : non-comma-balanced-token  */
+  if (next_token->type == CPP_NAME
+      && cp_lexer_peek_nth_token (parser->lexer, 2)->type == CPP_COLON)
+    {
+      bool justification_p
+	= suppress_p && id_equal (next_token->u.value, "justification");
+
+      /* Consume the `identifier :' pair.  */
+      cp_lexer_consume_token (parser->lexer);
+      cp_lexer_consume_token (parser->lexer);
+
+      next_token = cp_lexer_peek_token (parser->lexer);
+      if (justification_p)
+	{
+	  if (!cp_parser_is_pure_string_literal (next_token))
+	    {
+	      error_at (next_token->location, "expected string-literal");
+	      return error_mark_node;
+	    }
+	  cp_lexer_consume_token (parser->lexer);
+	  return arg;
+	}
+      /* The value is a single non-comma balanced-token.  A comma is
+	 excluded by the grammar, and a closing bracket or end of input is
+	 not the start of a balanced-token.  */
+      if (next_token->type == CPP_COMMA
+	  || !cp_parser_profiles_consume_balanced_token (parser))
+	{
+	  error_at (next_token->location,
+		    "expected a non-comma-balanced-token");
+	  return error_mark_node;
+	}
+      return arg;
+    }
+
+  /* non-operator-non-punctuator-token  */
+  if (next_token->type == CPP_EOF
+      || cp_token_is_operator_or_punctuator_p (next_token))
+    {
+      error_at (next_token->location,
+		"expected a non-operator-non-punctuator-token");
+      return error_mark_node;
+    }
+
+  cp_lexer_consume_token (parser->lexer);
+  return arg;
+}
+
+/* Parse a profile-argument-list
+
+  profile-argument-list:
+    profile-argument
+    profile-argument-list , profile-argument
+
+*/
+
+static tree
+cp_parser_profiles_argument_list (cp_parser *parser, bool suppress_p = false)
+{
+  tree profile_arg_list = NULL_TREE;
+
+  while (true)
+    {
+      tree arg = cp_parser_profiles_argument (parser, suppress_p);
+      if (arg == error_mark_node)
+	return error_mark_node;
+
+      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	cp_lexer_consume_token (parser->lexer);
+      else
+	break;
+    }
+  return profile_arg_list;
+}
+
+
+/* Parse a profile-name, returning it as a single identifier whose
+   components are joined with "::" (e.g. acme :: hardened is returned as
+   the identifier "acme::hardened").
+
+  profile-name:
+    identifier
+    profile-name :: identifier    */
+
+static tree
+cp_parser_profiles_name (cp_parser *parser)
+{
+  const char *profile_name = NULL;
+
+  while (true)
+    {
+      cp_token *token = cp_lexer_peek_token (parser->lexer);
+      if (token->type != CPP_NAME)
+	{
+	  if (profile_name == NULL)
+	    error_at (token->location, "expected profile-name");
+	  else
+	    error_at (token->location,
+		      "expected identifier after %<::%> in profile-name");
+	  return error_mark_node;
+	}
+
+      const char *component = IDENTIFIER_POINTER (token->u.value);
+      if (profile_name == NULL)
+	profile_name = component;
+      else /* Join the components with "::" to form the qualified name.  */
+	profile_name = ACONCAT ((profile_name, "::", component, NULL));
+
+      cp_lexer_consume_token (parser->lexer);
+      if (!cp_lexer_next_token_is (parser->lexer, CPP_SCOPE))
+	break;
+      cp_lexer_consume_token (parser->lexer);
+    }
+
+  return get_identifier (profile_name);
+}
+
+/* Parse the optional argument clause of a profile-designator, retaining the
+   balanced token sequence in a DEFERRED_PARSE.  PARSER is positioned
+   immediately after the profile-name.  Returns the DEFERRED_PARSE, NULL_TREE
+   when there is no argument clause, or error_mark_node on parse failure.  */
+
+static tree
+cp_parser_profile_designator_args (cp_parser *parser)
+{
+  if (!cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
+    return NULL_TREE;
+
+  /* Remember the '(' so that, after validating the argument clause, we can
+     retain its whole balanced token sequence.  */
+  cp_token *first = parser->lexer->next_token;
+
+  cp_lexer_consume_token (parser->lexer);
+  tree arg_list = cp_parser_profiles_argument_list (parser);
+  if (arg_list == error_mark_node
+      || !cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+    return error_mark_node;
+
+  cp_token *last = parser->lexer->next_token;
+
+  /* Retain the argument clause (from '(' up to and including ')') in a
+     DEFERRED_PARSE for later matching / profile use.  */
+  tree args = make_node (DEFERRED_PARSE);
+  DEFPARSE_TOKENS (args) = cp_token_cache_new (first, last);
+  DEFPARSE_INSTANTIATIONS (args) = nullptr;
+  return args;
+}
+
+/* Parse the argument clause of a profile-enforcement designator.
+
+   NAME is the (possibly qualified) profile-name that has just been consumed;
+   PARSER is positioned immediately after it, and LOC is the location of the
+   designator.  If an argument clause follows (introduced by '('), it is
+   validated now as a profile-argument-list and, in addition, its balanced
+   token sequence is retained in a DEFERRED_PARSE so that the profile can reuse
+   the exact tokens later; otherwise the designator has no arguments.
+
+   The profile-enforcement is built as a TREE_LIST whose TREE_PURPOSE is NAME
+   and whose TREE_VALUE is the DEFERRED_PARSE holding the argument tokens (or
+   NULL_TREE when there is no argument clause), and returned.  error_mark_node
+   is returned if the argument clause is malformed.  */
+
+static tree
+cp_parser_prof_enforce (cp_parser *parser, tree name, location_t loc)
+{
+  gcc_assert (name != NULL_TREE);
+
+  tree args = cp_parser_profile_designator_args (parser);
+  if (args == error_mark_node)
+    return error_mark_node;
+
+  return build_tree_list (name, args);
+}
+
+/* Parse a profiles::require designator: same argument-clause retention as
+   enforce, but do not record a TU-local profile-enforcement.  */
+
+static tree
+cp_parser_prof_require (cp_parser *parser, tree name)
+{
+  gcc_assert (name != NULL_TREE);
+
+  tree args = cp_parser_profile_designator_args (parser);
+  if (args == error_mark_node)
+    return error_mark_node;
+
+  return build_tree_list (name, args);
+}
+
+/* Parse a profile-designator
+
+  profile-designator:
+    profile-name
+    profile-name ( profile-argument-list )
+
+  profile-argument-list:
+    profile-argument
+    profile-argument-list , profile-argument
+
+*/
+
+static tree
+cp_parser_profiles_designator (cp_parser *parser,
+			      enum profiles_attr_kind kind)
+{
+  location_t loc = cp_lexer_peek_token (parser->lexer)->location;
+  tree profile_name = cp_parser_profiles_name (parser);
+
+  if (profile_name == error_mark_node)
+    return error_mark_node;
+
+  /* An enforce designator defers its argument clause.  */
+  if (kind == PAK_ENFORCE)
+    return cp_parser_prof_enforce (parser, profile_name, loc);
+
+  /* A require designator retains its argument clause for later matching
+     against an imported module's exported enforcements.  */
+  if (kind == PAK_REQUIRE)
+    return cp_parser_prof_require (parser, profile_name);
+
+  /* Otherwise parse and discard any optional profile-argument-list.  */
+  if (cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
+    {
+      cp_lexer_consume_token (parser->lexer);
+      tree profile_arg_list = cp_parser_profiles_argument_list (parser);
+      if (profile_arg_list == error_mark_node)
+	return error_mark_node;
+      if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+	return error_mark_node;
+    }
+
+  return profile_name;
+}
+
+/* Parse a profile-designator-list
+  profile-designator-list:
+     profile-designator
+     profile-designator-list , profile-designator
+
+   Used for profiles::enforce and profiles::require.  Returns a TREE_LIST of
+   designators (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause).  */
+
+static tree
+cp_parser_profiles_designator_seq (cp_parser *parser,
+				   enum profiles_attr_kind kind)
+{
+  tree profile_list = NULL_TREE;
+
+  while (true)
+    {
+      tree profile_des = cp_parser_profiles_designator (parser, kind);
+      if (profile_des == error_mark_node)
+	return error_mark_node;
+
+      if ((kind == PAK_ENFORCE || kind == PAK_REQUIRE)
+	  && profile_des != NULL_TREE)
+	profile_list
+	  = chainon (profile_list,
+		     build_tree_list (TREE_PURPOSE (profile_des),
+				      TREE_VALUE (profile_des)));
+
+      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	cp_lexer_consume_token (parser->lexer);
+      else
+	break;
+    }
+
+  return profile_list;
+}
+
+/* Parse `: string-literal', the value of a named argument that the
+   framework itself defines.  Return false after diagnosing an error.  */
+
+static bool
+cp_parser_profiles_string_value (cp_parser *parser)
+{
+  if (!cp_parser_require (parser, CPP_COLON, RT_COLON))
+    return false;
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
+  if (!cp_parser_is_pure_string_literal (token))
+    {
+      error_at (token->location, "expected string-literal");
+      return false;
+    }
+  cp_lexer_consume_token (parser->lexer);
+  return true;
+}
+
+/* Parse the arguments of profiles::exempt ([decl.profile.exempt]/1),
+   positioned after the `(':
+
+     profile-name , header-search : string-literal
+     profile-name , header-search : string-literal
+       , justification : string-literal
+
+   header-search:
+     angle_header
+     quote_header
+
+   Nothing is recorded.  Return false after diagnosing an error.  */
+
+static bool
+cp_parser_profiles_exempt_args (cp_parser *parser)
+{
+  if (cp_parser_profiles_name (parser) == error_mark_node
+      || !cp_parser_require (parser, CPP_COMMA, RT_COMMA))
+    return false;
+
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
+  if (token->type != CPP_NAME
+      || !(id_equal (token->u.value, "angle_header")
+	   || id_equal (token->u.value, "quote_header")))
+    {
+      error_at (token->location,
+		"expected %<angle_header%> or %<quote_header%>");
+      return false;
+    }
+  cp_lexer_consume_token (parser->lexer);
+  if (!cp_parser_profiles_string_value (parser))
+    return false;
+
+  if (!cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+    return true;
+  cp_lexer_consume_token (parser->lexer);
+  token = cp_lexer_peek_token (parser->lexer);
+  if (token->type != CPP_NAME || !id_equal (token->u.value, "justification"))
+    {
+      error_at (token->location, "expected %<justification%>");
+      return false;
+    }
+  cp_lexer_consume_token (parser->lexer);
+  return cp_parser_profiles_string_value (parser);
+}
+
+/* The kind of the profiles:: attribute named ATTR_ID; PAK_INVALID if there
+   is none.  */
+static enum profiles_attr_kind
+cp_parser_profiles_attr_kind (tree attr_id)
+{
+  if (id_equal (attr_id, "enforce"))
+    return PAK_ENFORCE;
+  else if (id_equal (attr_id, "require"))
+    return PAK_REQUIRE;
+  else if (id_equal (attr_id, "suppress"))
+    return PAK_SUPPRESS;
+  else if (id_equal (attr_id, "exempt"))
+    return PAK_EXEMPT;
+  return PAK_INVALID;
+}
+
+/* Parse the argument clause of a profiles:: attribute.  ATTRIBUTE is the
+   already-built attribute node (TREE_PURPOSE = profiles / kind); ATTR_ID is
+   the attribute name (enforce / require / suppress / exempt).  PARSER is
+   positioned at the opening '('.  */
+static tree
+cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
+{
+  enum profiles_attr_kind kind = cp_parser_profiles_attr_kind (attr_id);
+
+  if (!cp_parser_require (parser, CPP_OPEN_PAREN, RT_OPEN_PAREN))
+    return error_mark_node;
+
+  tree arguments = NULL_TREE;
+  if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
+    {
+      arguments = cp_parser_profiles_designator_seq (parser, kind);
+      if (arguments == error_mark_node)
+	return error_mark_node;
+    }
+  else if (kind == PAK_SUPPRESS)
+    {
+      tree profile_name = cp_parser_profiles_name (parser);
+      if (profile_name == error_mark_node)
+	return error_mark_node;
+      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	{
+	  cp_lexer_consume_token (parser->lexer);
+	  tree profile_arg_list
+	    = cp_parser_profiles_argument_list (parser, /*suppress_p=*/true);
+	  if (profile_arg_list == error_mark_node)
+	    return error_mark_node;
+	}
+    }
+  else if (kind == PAK_EXEMPT)
+    {
+      if (!cp_parser_profiles_exempt_args (parser))
+	return error_mark_node;
+    }
+
+  if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+    return error_mark_node;
+
+  /* For enforce and require, TREE_VALUE is the TREE_LIST of designators.  */
+  if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
+    TREE_VALUE (attribute) = arguments;
+
+  return attribute;
+}
+
 /*  Parse a standard C++11 attribute.
 
     The returned representation is a TREE_LIST which TREE_PURPOSE is
@@ -33664,10 +34163,36 @@ cp_parser_std_attribute (cp_parser *parser, tree attr_ns)
 	TREE_PURPOSE (attribute) = attr_id;
     }
 
+  /* An unknown name in the profiles namespace is ignored, as any unknown
+     attribute is, but diagnosed here, the same way wherever it appears.  */
+  if (flag_profiles
+      && attr_ns != NULL_TREE
+      && is_attribute_p ("profiles", attr_ns)
+      && cp_parser_profiles_attr_kind (attr_id) == PAK_INVALID)
+    {
+      if (id_loc != parser->profiles_diagnosed_loc)
+	warning_at (id_loc, OPT_Wattributes,
+		    "unknown attribute %<profiles::%E%> ignored", attr_id);
+      parser->profiles_diagnosed_loc = id_loc;
+      if (token->type == CPP_OPEN_PAREN)
+	for (size_t n = cp_parser_skip_balanced_tokens (parser, 1) - 1; n; --n)
+	  cp_lexer_consume_token (parser->lexer);
+      return NULL_TREE;
+    }
+
   /* Now parse the optional argument clause of the attribute.  */
 
   if (token->type != CPP_OPEN_PAREN)
     {
+      if (flag_profiles
+	  && attr_ns != NULL_TREE
+	  && is_attribute_p ("profiles", attr_ns))
+	{
+	  error_at (token->location,
+		    "%<profiles::%E%> attribute requires argument",
+		    attr_id);
+	  return error_mark_node;
+	}
       if ((flag_openmp || flag_openmp_simd)
 	  && attr_ns == omp_identifier
 	  && (is_attribute_p ("directive", attr_id)
@@ -33684,6 +34209,31 @@ cp_parser_std_attribute (cp_parser *parser, tree attr_ns)
   {
     vec<tree, va_gc> *vec;
     int attr_flag = normal_attr;
+
+    /* profiles::* has its own grammar (designators, deferred arguments).
+       It is dispatched before the attribute tables are consulted, so that
+       no table can take the namespace over, and parsed here so that it can
+       share an attribute-list with other attributes (e.g. omp::).  */
+    if (flag_profiles
+	&& attr_ns != NULL_TREE
+	&& is_attribute_p ("profiles", attr_ns))
+      {
+	tree r = cp_parser_profiles_attribute (parser, attribute, attr_id);
+	/* After an error, recover as for any other attribute: skip the
+	   rest of the attribute-list, up to the `]' that closes the
+	   attribute-specifier, so that the declaration it belongs to is
+	   not lost.  The error may have left the parser inside the argument
+	   clause, so climb out one unmatched `)' at a time; the skip stops
+	   at that `]', or at a `;' or `}'.  */
+	if (r == error_mark_node)
+	  while (cp_parser_skip_to_closing_parenthesis (parser,
+							/*recovering=*/true,
+							/*or_comma=*/false,
+							/*consume_paren=*/true)
+		 > 0)
+	    ;
+	return r;
+      }
 
     /* Maybe we don't expect to see any arguments for this attribute.  */
     const attribute_spec *as
@@ -34391,6 +34941,8 @@ cp_parser_std_attribute_spec (cp_parser *parser)
 	  return attributes;
 	}
 
+      /* profiles::* is parsed inside cp_parser_std_attribute (like
+	 omp::), so it can share an attribute-list with other attributes.  */
       if (cp_lexer_next_token_is_keyword (parser->lexer, RID_USING))
 	{
 	  token = cp_lexer_peek_nth_token (parser->lexer, 2);

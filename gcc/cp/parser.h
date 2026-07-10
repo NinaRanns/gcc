@@ -425,6 +425,11 @@ struct GTY(()) cp_parser {
      appear.  */
   bool omp_attrs_forbidden_p;
 
+  /* Where the last profiles attribute was diagnosed.  cp_parser_statement
+     parses the attributes leading a declaration twice, so each diagnostic
+     checks this to be given only once.  */
+  location_t profiles_diagnosed_loc;
+
   /* TRUE if an OpenMP array section is allowed.  */
   bool omp_array_section_p;
 
