@@ -34040,6 +34040,268 @@ cp_parser_function_contract_specifier_seq (cp_parser *parser)
     return contract_specs;
 }
 
+/* Return true if TOKEN is an operator-or-punctuator token.  */
+
+static bool
+cp_token_is_operator_or_punctuator_p (cp_token *token)
+{
+  return token->type <= CPP_LAST_PUNCTUATOR;
+}
+
+/* Parse a profile-argument
+
+profile-argument:
+   non-operator-non-punctuator-token
+   identifier : non-comma-balanced-token
+
+ non-operator-non-punctuator-token:
+   Any token other than an operator-or-punctuator
+ non-comma-balanced-token:
+   Any balanced-token other than comma
+
+*/
+
+static tree
+cp_parser_profiles_argument (cp_parser *parser)
+{
+  tree arg = NULL_TREE;
+  cp_token *next_token = cp_lexer_peek_token (parser->lexer);
+
+  /* identifier : non-comma-balanced-token  */
+  if (next_token->type == CPP_NAME
+      && cp_lexer_peek_nth_token (parser->lexer, 2)->type == CPP_COLON)
+    {
+      /* Consume the `identifier :' pair.  */
+      cp_lexer_consume_token (parser->lexer);
+      cp_lexer_consume_token (parser->lexer);
+
+      next_token = cp_lexer_peek_token (parser->lexer);
+      if (next_token->type == CPP_COMMA)
+	{
+	  error_at (next_token->location,
+		    "expected a non-comma-balanced-token");
+	  return error_mark_node;
+	}
+
+      size_t n = cp_parser_skip_balanced_tokens (parser, 1);
+      if (n == 1)
+	{
+	  error_at (next_token->location,
+		    "expected a non-comma-balanced-token");
+	  return error_mark_node;
+	}
+      for (; --n; )
+	cp_lexer_consume_token (parser->lexer);
+      return arg;
+    }
+
+  /* non-operator-non-punctuator-token  */
+  if (next_token->type == CPP_EOF
+      || cp_token_is_operator_or_punctuator_p (next_token))
+    {
+      error_at (next_token->location,
+		"expected a non-operator-non-punctuator-token");
+      return error_mark_node;
+    }
+
+  cp_lexer_consume_token (parser->lexer);
+  return arg;
+}
+
+/* Parse a profile-argument-list
+
+  profile-argument-list:
+    profile-argument
+    profile-argument-list , profile-argument
+
+*/
+
+static tree
+cp_parser_profiles_argument_list (cp_parser *parser)
+{
+  tree profile_arg_list = NULL_TREE;
+
+  while (true)
+    {
+      tree arg = cp_parser_profiles_argument (parser);
+      if (arg == error_mark_node)
+	return error_mark_node;
+
+      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	cp_lexer_consume_token (parser->lexer);
+      else
+	break;
+    }
+  return profile_arg_list;
+}
+
+
+/* Parse a profile-name. Do nothing, just consume it.
+
+  profile-name:
+    identifier
+    profile-name :: identifier    */
+
+static tree
+cp_parser_profiles_name (cp_parser *parser)
+{
+  tree profile_name = NULL_TREE;
+  bool saw_name = false;
+
+  while (true)
+    {
+      cp_token *token = cp_lexer_peek_token (parser->lexer);
+      if (token->type != CPP_NAME)
+	{
+	  if (!saw_name)
+	    error_at (token->location, "expected profile-name");
+	  else
+	    error_at (token->location,
+		      "expected identifier after %<::%> in profile-name");
+	  return error_mark_node;
+	}
+
+      cp_lexer_consume_token (parser->lexer);
+      saw_name = true;
+      if (!cp_lexer_next_token_is (parser->lexer, CPP_SCOPE))
+	break;
+      cp_lexer_consume_token (parser->lexer);
+    }
+  return profile_name;
+}
+
+
+/* Parse a profile-designator
+
+  profile-designator:
+    profile-name
+    profile-name ( profile-argument-list )
+
+  profile-argument-list:
+    profile-argument
+    profile-argument-list , profile-argument
+
+*/
+
+static tree
+cp_parser_profiles_designator (cp_parser *parser)
+{
+  tree profile_name = cp_parser_profiles_name (parser);
+
+  if (profile_name == error_mark_node)
+    return error_mark_node;
+
+  /* Optional profile-argument-list in parentheses.  */
+  if (cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
+    {
+      cp_lexer_consume_token (parser->lexer);
+      tree profile_arg_list = cp_parser_profiles_argument_list (parser);
+      if (profile_arg_list == error_mark_node)
+	return error_mark_node;
+      if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+	return error_mark_node;
+    }
+
+  return profile_name;
+}
+
+/* Parse a profile-designator-list
+guessing the production to be
+  profile-designator-list:
+     profile-designator
+     profile-designator-list , profile-designator
+*/
+
+static tree
+cp_parser_profiles_designator_seq (cp_parser *parser)
+{
+  tree profile_list = NULL_TREE;
+
+  while (true)
+    {
+      tree profile_des = cp_parser_profiles_designator (parser);
+      if (profile_des == error_mark_node)
+	return error_mark_node;
+
+      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	cp_lexer_consume_token (parser->lexer);
+      else
+	break;
+    }
+
+  return profile_list;
+}
+
+/* Parse a profile attribute
+
+  [[profiles::enforce(profile-designator-list)]];
+  [[profiles::require(profile-designator-list)]];
+  [[profiles::suppress(profile-name, profile-argument-list)]]
+
+  TODO : exempt ?
+  [[profiles::exempt(acme::type, angle_header: “unistd.h”)]];
+  [[profiles::exempt(acme::type, quote_header: “lead-ffi.h”)]];
+*/
+
+static tree
+cp_parser_profiles_attribute (cp_parser *parser)
+{
+  tree profile_attr = NULL_TREE;
+
+  /* We're here because we found a profile attribute. Consume the 'profiles'
+     part.   */
+  cp_lexer_consume_token (parser->lexer);
+
+  if (!cp_parser_require (parser, CPP_SCOPE, RT_SCOPE))
+    return error_mark_node;
+
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
+
+  if (token->type != CPP_NAME)
+    {
+      error_at (token->location, "expected profiles attribute name");
+      return error_mark_node;
+    }
+
+  tree profile_kind = token->u.value;
+  cp_lexer_consume_token (parser->lexer);
+
+  if (!cp_parser_require (parser, CPP_OPEN_PAREN, RT_OPEN_PAREN))
+    return error_mark_node;
+
+  if (id_equal (profile_kind, "enforce")
+      || id_equal (profile_kind, "require"))
+    {
+      profile_attr = cp_parser_profiles_designator_seq (parser);
+      if (profile_attr == error_mark_node)
+	return error_mark_node;
+    }
+  else if (id_equal (profile_kind, "suppress"))
+    {
+      profile_attr = cp_parser_profiles_name (parser);
+      if (profile_attr == error_mark_node)
+	return error_mark_node;
+      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	{
+	  cp_lexer_consume_token (parser->lexer);
+	  tree profile_arg_list = cp_parser_profiles_argument_list (parser);
+	  if (profile_arg_list == error_mark_node)
+	    return error_mark_node;
+	}
+    }
+  else
+    {
+      error_at (token->location, "not a valid profiles attribute");
+      return error_mark_node;
+    }
+
+  if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+    return error_mark_node;
+
+  return profile_attr;
+}
+
+
 /* Parse a standard C++-11 attribute specifier.
 
    attribute-specifier:
@@ -34094,33 +34356,42 @@ cp_parser_std_attribute_spec (cp_parser *parser)
 	  attr_name = canonicalize_attr_name (attr_name);
 	}
 
-      if (cp_lexer_next_token_is_keyword (parser->lexer, RID_USING))
+      /* Handle profile attributes specially.  */
+      if (attr_name && is_attribute_p ("profiles", attr_name))
 	{
-	  token = cp_lexer_peek_nth_token (parser->lexer, 2);
-	  if (token->type == CPP_NAME)
-	    attr_ns = token->u.value;
-	  else if (token->type == CPP_KEYWORD)
-	    attr_ns = ridpointers[(int) token->keyword];
-	  else if (token->flags & NAMED_OP)
-	    attr_ns = get_identifier (cpp_type2name (token->type,
-						     token->flags));
-	  if (attr_ns
-	      && cp_lexer_nth_token_is (parser->lexer, 3, CPP_COLON))
-	    {
-	      if (cxx_dialect < cxx17)
-		pedwarn (input_location, OPT_Wc__17_extensions,
-			 "attribute using prefix only available "
-			 "with %<-std=c++17%> or %<-std=gnu++17%>");
-
-	      cp_lexer_consume_token (parser->lexer);
-	      cp_lexer_consume_token (parser->lexer);
-	      cp_lexer_consume_token (parser->lexer);
-	    }
-	  else
-	    attr_ns = NULL_TREE;
+	  tree attrs = cp_parser_profiles_attribute (parser);
+	  if (attrs != error_mark_node)
+	    attributes = attrs;
 	}
+      else {
+	  if (cp_lexer_next_token_is_keyword (parser->lexer, RID_USING))
+	    {
+	      token = cp_lexer_peek_nth_token (parser->lexer, 2);
+	      if (token->type == CPP_NAME)
+	      attr_ns = token->u.value;
+	      else if (token->type == CPP_KEYWORD)
+	      attr_ns = ridpointers[(int) token->keyword];
+	      else if (token->flags & NAMED_OP)
+	      attr_ns = get_identifier (cpp_type2name (token->type,
+		      token->flags));
+	      if (attr_ns
+		  && cp_lexer_nth_token_is (parser->lexer, 3, CPP_COLON))
+		{
+		  if (cxx_dialect < cxx17)
+		  pedwarn (input_location, OPT_Wc__17_extensions,
+		      "attribute using prefix only available "
+		      "with %<-std=c++17%> or %<-std=gnu++17%>");
 
-      attributes = cp_parser_std_attribute_list (parser, attr_ns);
+		  cp_lexer_consume_token (parser->lexer);
+		  cp_lexer_consume_token (parser->lexer);
+		  cp_lexer_consume_token (parser->lexer);
+		}
+	      else
+	      attr_ns = NULL_TREE;
+	    }
+
+	  attributes = cp_parser_std_attribute_list (parser, attr_ns);
+      }
 
       if (!cp_parser_require (parser, CPP_CLOSE_SQUARE, RT_CLOSE_SQUARE)
 	  || !cp_parser_require (parser, CPP_CLOSE_SQUARE, RT_CLOSE_SQUARE))
