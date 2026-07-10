@@ -1,0 +1,41 @@
+# Copyright (C) 2026 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with GCC; see the file COPYING3.  If not see
+# <http://www.gnu.org/licenses/>.
+
+# Test the C++ profiles framework (P3589).
+
+load_lib g++-dg.exp
+load_lib target-supports.exp
+
+global DEFAULT_CXXFLAGS
+if ![info exists DEFAULT_CXXFLAGS] then {
+    set DEFAULT_CXXFLAGS " -pedantic-errors -Wno-long-long"
+}
+
+if $tracelevel then {
+    strace $tracelevel
+}
+
+if ![gcc_parallel_test_run_p profiles] {
+    return
+}
+gcc_parallel_test_enable 0
+
+# ---- ordinary profile tests ----
+
+set ordinary [lsort [glob -nocomplain $srcdir/$subdir/*.C]]
+g++-dg-runtest $ordinary "" $DEFAULT_CXXFLAGS
+
+gcc_parallel_test_enable 1

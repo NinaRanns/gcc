@@ -1962,6 +1962,11 @@ cp_check_const_attributes (tree attributes)
       if (annotation_p (attr))
 	continue;
 
+      /* profiles::* attributes carry designators / deferred argument
+	 tokens, not constant-expression attribute arguments.  */
+      if (is_attribute_namespace_p ("profiles", attr))
+	continue;
+
       tree arg;
       /* As we implement alignas using gnu::aligned attribute and
 	 alignas argument is a constant expression, force manifestly
