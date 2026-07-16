@@ -751,8 +751,11 @@ decl_attributes (tree *node, tree attributes, int flags,
 	    }
 	  continue;
 	}
-      else
+      else if (spec->max_length >= -1)
 	{
+	  /* Arity checks apply only when arguments are parsed as an
+	     expression-list.  max_length -2 / -3 use other representations;
+	     validation is left to the handler.  */
 	  int nargs = list_length (args);
 	  if (nargs < spec->min_length
 	      || (spec->max_length >= 0

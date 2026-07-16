@@ -1977,6 +1977,11 @@ cp_check_const_attributes (tree attributes)
 	   arg = TREE_CHAIN (arg))
 	{
 	  tree expr = TREE_VALUE (arg);
+	  /* Balanced-token / omp::directive args are DEFERRED_PARSE, not
+	     constant expressions.  Also guard against a null TREE_VALUE
+	     (e.g. noexcept-style lists) so EXPR_P does not crash.  */
+	  if (expr == NULL_TREE || TREE_CODE (expr) == DEFERRED_PARSE)
+	    continue;
 	  if (EXPR_P (expr))
 	    TREE_VALUE (arg)
 	      = fold_non_dependent_expr (expr, tf_warning_or_error,

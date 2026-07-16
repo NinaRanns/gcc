@@ -2239,9 +2239,19 @@ struct attribute_spec {
   /* The minimum length of the list of arguments of the attribute.  */
   int min_length;
   /* The maximum length of the list of arguments of the attribute
-     (-1 for no maximum).  It can also be -2 for fake attributes
-     created for the sake of -Wno-attributes; in that case, we
-     should skip the balanced token sequence when parsing the attribute.  */
+     (-1 for no maximum).  Special values:
+     -2: fake attributes created for -Wno-attributes; arguments are
+	 skipped as a balanced-token sequence and the attribute is
+	 treated as ignored (see attribute_ignored_p).
+     -3: parse the attribute-argument-clause as required by the C++
+	 standard ([dcl.attr.grammar]):
+	   attribute-argument-clause:
+	     ( balanced-token-seq[opt] )
+	 Unlike -2, the attribute is not ignored; argument validation
+	 is left to the handler.  	 TREE_VALUE of the attribute is a
+	 TREE_LIST whose single TREE_VALUE is a DEFERRED_PARSE holding
+	 a cp_token_cache of the clause (including the outer
+	 parentheses), matching omp::directive.  */
   int max_length;
   /* Whether this attribute requires a DECL.  If it does, it will be passed
      from types of DECLs, function return types and array element types to

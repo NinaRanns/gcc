@@ -5,9 +5,8 @@
 //   [[profiles::require(profile-designator-list)]]
 // with the same profile-designator / profile-argument grammar as enforce.
 // Module-import placement is covered separately under g++.dg/modules/.
-
 // Paper-shaped: single simple profile-name.
-[[profiles::require(std::type)]];
+[[profiles::require(std::type)]] int x;
 
 // Paper-shaped: single nested profile-name.
 [[profiles::require(std::lib::hardened)]];

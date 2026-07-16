@@ -50,6 +50,14 @@ extern bool attribute_ignored_p (tree);
 extern bool attribute_ignored_p (const attribute_spec *const);
 extern bool any_nonignored_attribute_p (tree);
 
+/* True if AS requests standard attribute-argument-clause parsing
+   (balanced-token-seq) via max_length == -3.  */
+inline bool
+attribute_takes_balanced_args_p (const attribute_spec *const as)
+{
+  return as != NULL && as->max_length == -3;
+}
+
 extern struct scoped_attributes *
   register_scoped_attributes (const scoped_attribute_specs &, bool = false);
 

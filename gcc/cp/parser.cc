@@ -3230,6 +3230,7 @@ static bool cp_parser_skip_up_to_closing_square_bracket
 static bool cp_parser_skip_to_closing_square_bracket
   (cp_parser *);
 static size_t cp_parser_skip_balanced_tokens (cp_parser *, size_t);
+static tree cp_parser_balanced_token_seq (cp_parser *);
 static bool cp_parser_next_tokens_can_be_canon_loop (cp_parser *,
 						     enum tree_code, bool);
 static tree cp_parser_omp_loop_nest (cp_parser *, bool *);
@@ -33438,6 +33439,32 @@ cp_parser_std_attribute (cp_parser *parser, tree attr_ns)
 	return attribute;
       }
 
+    if (attribute_takes_balanced_args_p (as))
+      {
+	token = cp_lexer_peek_token (parser->lexer);
+	if (token->type != CPP_OPEN_PAREN)
+	  {
+	    error_at (token->location, "expected %<(%>");
+	    return error_mark_node;
+	  }
+
+	/* Cache the attribute-argument-clause as a DEFERRED_PARSE, same
+	   shape as omp::directive.  Do not reuse cp_parser_save_noexcept:
+	   that puts the deferred node in TREE_PURPOSE with a null
+	   TREE_VALUE, and cp_check_const_attributes would then call
+	   EXPR_P (NULL).  Attribute args need TREE_VALUE = DEFERRED_PARSE.  */
+	cp_token *first = parser->lexer->next_token;
+	/* Include the final ')'.  */
+	cp_parser_cache_group (parser, CPP_CLOSE_PAREN, /*depth=*/0);
+	cp_token *last = parser->lexer->next_token;
+	tree deferred = make_node (DEFERRED_PARSE);
+	DEFPARSE_TOKENS (deferred) = cp_token_cache_new (first, last);
+	DEFPARSE_INSTANTIATIONS (deferred) = nullptr;
+	TREE_VALUE (attribute)
+	  = tree_cons (NULL_TREE, deferred, NULL_TREE);
+	return attribute;
+      }
+
     vec = cp_parser_parenthesized_expression_list
       (parser, attr_flag, /*cast_p=*/false,
        /*allow_expansion_p=*/true,
@@ -34040,268 +34067,6 @@ cp_parser_function_contract_specifier_seq (cp_parser *parser)
     return contract_specs;
 }
 
-/* Return true if TOKEN is an operator-or-punctuator token.  */
-
-static bool
-cp_token_is_operator_or_punctuator_p (cp_token *token)
-{
-  return token->type <= CPP_LAST_PUNCTUATOR;
-}
-
-/* Parse a profile-argument
-
-profile-argument:
-   non-operator-non-punctuator-token
-   identifier : non-comma-balanced-token
-
- non-operator-non-punctuator-token:
-   Any token other than an operator-or-punctuator
- non-comma-balanced-token:
-   Any balanced-token other than comma
-
-*/
-
-static tree
-cp_parser_profiles_argument (cp_parser *parser)
-{
-  tree arg = NULL_TREE;
-  cp_token *next_token = cp_lexer_peek_token (parser->lexer);
-
-  /* identifier : non-comma-balanced-token  */
-  if (next_token->type == CPP_NAME
-      && cp_lexer_peek_nth_token (parser->lexer, 2)->type == CPP_COLON)
-    {
-      /* Consume the `identifier :' pair.  */
-      cp_lexer_consume_token (parser->lexer);
-      cp_lexer_consume_token (parser->lexer);
-
-      next_token = cp_lexer_peek_token (parser->lexer);
-      if (next_token->type == CPP_COMMA)
-	{
-	  error_at (next_token->location,
-		    "expected a non-comma-balanced-token");
-	  return error_mark_node;
-	}
-
-      size_t n = cp_parser_skip_balanced_tokens (parser, 1);
-      if (n == 1)
-	{
-	  error_at (next_token->location,
-		    "expected a non-comma-balanced-token");
-	  return error_mark_node;
-	}
-      for (; --n; )
-	cp_lexer_consume_token (parser->lexer);
-      return arg;
-    }
-
-  /* non-operator-non-punctuator-token  */
-  if (next_token->type == CPP_EOF
-      || cp_token_is_operator_or_punctuator_p (next_token))
-    {
-      error_at (next_token->location,
-		"expected a non-operator-non-punctuator-token");
-      return error_mark_node;
-    }
-
-  cp_lexer_consume_token (parser->lexer);
-  return arg;
-}
-
-/* Parse a profile-argument-list
-
-  profile-argument-list:
-    profile-argument
-    profile-argument-list , profile-argument
-
-*/
-
-static tree
-cp_parser_profiles_argument_list (cp_parser *parser)
-{
-  tree profile_arg_list = NULL_TREE;
-
-  while (true)
-    {
-      tree arg = cp_parser_profiles_argument (parser);
-      if (arg == error_mark_node)
-	return error_mark_node;
-
-      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
-	cp_lexer_consume_token (parser->lexer);
-      else
-	break;
-    }
-  return profile_arg_list;
-}
-
-
-/* Parse a profile-name. Do nothing, just consume it.
-
-  profile-name:
-    identifier
-    profile-name :: identifier    */
-
-static tree
-cp_parser_profiles_name (cp_parser *parser)
-{
-  tree profile_name = NULL_TREE;
-  bool saw_name = false;
-
-  while (true)
-    {
-      cp_token *token = cp_lexer_peek_token (parser->lexer);
-      if (token->type != CPP_NAME)
-	{
-	  if (!saw_name)
-	    error_at (token->location, "expected profile-name");
-	  else
-	    error_at (token->location,
-		      "expected identifier after %<::%> in profile-name");
-	  return error_mark_node;
-	}
-
-      cp_lexer_consume_token (parser->lexer);
-      saw_name = true;
-      if (!cp_lexer_next_token_is (parser->lexer, CPP_SCOPE))
-	break;
-      cp_lexer_consume_token (parser->lexer);
-    }
-  return profile_name;
-}
-
-
-/* Parse a profile-designator
-
-  profile-designator:
-    profile-name
-    profile-name ( profile-argument-list )
-
-  profile-argument-list:
-    profile-argument
-    profile-argument-list , profile-argument
-
-*/
-
-static tree
-cp_parser_profiles_designator (cp_parser *parser)
-{
-  tree profile_name = cp_parser_profiles_name (parser);
-
-  if (profile_name == error_mark_node)
-    return error_mark_node;
-
-  /* Optional profile-argument-list in parentheses.  */
-  if (cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
-    {
-      cp_lexer_consume_token (parser->lexer);
-      tree profile_arg_list = cp_parser_profiles_argument_list (parser);
-      if (profile_arg_list == error_mark_node)
-	return error_mark_node;
-      if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
-	return error_mark_node;
-    }
-
-  return profile_name;
-}
-
-/* Parse a profile-designator-list
-guessing the production to be
-  profile-designator-list:
-     profile-designator
-     profile-designator-list , profile-designator
-*/
-
-static tree
-cp_parser_profiles_designator_seq (cp_parser *parser)
-{
-  tree profile_list = NULL_TREE;
-
-  while (true)
-    {
-      tree profile_des = cp_parser_profiles_designator (parser);
-      if (profile_des == error_mark_node)
-	return error_mark_node;
-
-      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
-	cp_lexer_consume_token (parser->lexer);
-      else
-	break;
-    }
-
-  return profile_list;
-}
-
-/* Parse a profile attribute
-
-  [[profiles::enforce(profile-designator-list)]];
-  [[profiles::require(profile-designator-list)]];
-  [[profiles::suppress(profile-name, profile-argument-list)]]
-
-  TODO : exempt ?
-  [[profiles::exempt(acme::type, angle_header: “unistd.h”)]];
-  [[profiles::exempt(acme::type, quote_header: “lead-ffi.h”)]];
-*/
-
-static tree
-cp_parser_profiles_attribute (cp_parser *parser)
-{
-  tree profile_attr = NULL_TREE;
-
-  /* We're here because we found a profile attribute. Consume the 'profiles'
-     part.   */
-  cp_lexer_consume_token (parser->lexer);
-
-  if (!cp_parser_require (parser, CPP_SCOPE, RT_SCOPE))
-    return error_mark_node;
-
-  cp_token *token = cp_lexer_peek_token (parser->lexer);
-
-  if (token->type != CPP_NAME)
-    {
-      error_at (token->location, "expected profiles attribute name");
-      return error_mark_node;
-    }
-
-  tree profile_kind = token->u.value;
-  cp_lexer_consume_token (parser->lexer);
-
-  if (!cp_parser_require (parser, CPP_OPEN_PAREN, RT_OPEN_PAREN))
-    return error_mark_node;
-
-  if (id_equal (profile_kind, "enforce")
-      || id_equal (profile_kind, "require"))
-    {
-      profile_attr = cp_parser_profiles_designator_seq (parser);
-      if (profile_attr == error_mark_node)
-	return error_mark_node;
-    }
-  else if (id_equal (profile_kind, "suppress"))
-    {
-      profile_attr = cp_parser_profiles_name (parser);
-      if (profile_attr == error_mark_node)
-	return error_mark_node;
-      if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
-	{
-	  cp_lexer_consume_token (parser->lexer);
-	  tree profile_arg_list = cp_parser_profiles_argument_list (parser);
-	  if (profile_arg_list == error_mark_node)
-	    return error_mark_node;
-	}
-    }
-  else
-    {
-      error_at (token->location, "not a valid profiles attribute");
-      return error_mark_node;
-    }
-
-  if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
-    return error_mark_node;
-
-  return profile_attr;
-}
-
-
 /* Parse a standard C++-11 attribute specifier.
 
    attribute-specifier:
@@ -34356,42 +34121,33 @@ cp_parser_std_attribute_spec (cp_parser *parser)
 	  attr_name = canonicalize_attr_name (attr_name);
 	}
 
-      /* Handle profile attributes specially.  */
-      if (attr_name && is_attribute_p ("profiles", attr_name))
+      if (cp_lexer_next_token_is_keyword (parser->lexer, RID_USING))
 	{
-	  tree attrs = cp_parser_profiles_attribute (parser);
-	  if (attrs != error_mark_node)
-	    attributes = attrs;
-	}
-      else {
-	  if (cp_lexer_next_token_is_keyword (parser->lexer, RID_USING))
+	  token = cp_lexer_peek_nth_token (parser->lexer, 2);
+	  if (token->type == CPP_NAME)
+	    attr_ns = token->u.value;
+	  else if (token->type == CPP_KEYWORD)
+	    attr_ns = ridpointers[(int) token->keyword];
+	  else if (token->flags & NAMED_OP)
+	    attr_ns = get_identifier (cpp_type2name (token->type,
+						     token->flags));
+	  if (attr_ns
+	      && cp_lexer_nth_token_is (parser->lexer, 3, CPP_COLON))
 	    {
-	      token = cp_lexer_peek_nth_token (parser->lexer, 2);
-	      if (token->type == CPP_NAME)
-	      attr_ns = token->u.value;
-	      else if (token->type == CPP_KEYWORD)
-	      attr_ns = ridpointers[(int) token->keyword];
-	      else if (token->flags & NAMED_OP)
-	      attr_ns = get_identifier (cpp_type2name (token->type,
-		      token->flags));
-	      if (attr_ns
-		  && cp_lexer_nth_token_is (parser->lexer, 3, CPP_COLON))
-		{
-		  if (cxx_dialect < cxx17)
-		  pedwarn (input_location, OPT_Wc__17_extensions,
-		      "attribute using prefix only available "
-		      "with %<-std=c++17%> or %<-std=gnu++17%>");
+	      if (cxx_dialect < cxx17)
+		pedwarn (input_location, OPT_Wc__17_extensions,
+			 "attribute using prefix only available "
+			 "with %<-std=c++17%> or %<-std=gnu++17%>");
 
-		  cp_lexer_consume_token (parser->lexer);
-		  cp_lexer_consume_token (parser->lexer);
-		  cp_lexer_consume_token (parser->lexer);
-		}
-	      else
-	      attr_ns = NULL_TREE;
+	      cp_lexer_consume_token (parser->lexer);
+	      cp_lexer_consume_token (parser->lexer);
+	      cp_lexer_consume_token (parser->lexer);
 	    }
+	  else
+	    attr_ns = NULL_TREE;
+	}
 
-	  attributes = cp_parser_std_attribute_list (parser, attr_ns);
-      }
+      attributes = cp_parser_std_attribute_list (parser, attr_ns);
 
       if (!cp_parser_require (parser, CPP_CLOSE_SQUARE, RT_CLOSE_SQUARE)
 	  || !cp_parser_require (parser, CPP_CLOSE_SQUARE, RT_CLOSE_SQUARE))
@@ -34501,6 +34257,63 @@ cp_parser_std_attribute_spec_seq (cp_parser *parser)
     }
 
   return attr_specs;
+}
+
+/* Parse a balanced-token-seq and return it as a TREE_LIST.  On entry the
+   next token must be '('.  Each element's TREE_PURPOSE is an INTEGER_CST
+   of the cpp_ttype; TREE_VALUE is the token's tree value or NULL_TREE.
+   Returns error_mark_node on failure.  */
+
+static tree
+cp_parser_balanced_token_seq (cp_parser *parser)
+{
+  tree list = NULL_TREE;
+  int nparens = 0, nbraces = 0, nsquares = 0, nsplices = 0;
+  int n = 1;
+  do
+    {
+      switch (cp_lexer_peek_nth_token (parser->lexer, n++)->type)
+	{
+	case CPP_PRAGMA_EOL:
+	  if (!parser->lexer->in_pragma)
+	    break;
+	  /* FALLTHRU */
+	case CPP_EOF:
+	  /* Ran out of tokens.  */
+	  return error_mark_node;
+	case CPP_OPEN_PAREN:
+	  ++nparens;
+	  break;
+	case CPP_OPEN_BRACE:
+	  ++nbraces;
+	  break;
+	case CPP_OPEN_SQUARE:
+	  ++nsquares;
+	  break;
+	case CPP_OPEN_SPLICE:
+	  ++nsplices;
+	  break;
+	case CPP_CLOSE_PAREN:
+	  --nparens;
+	  break;
+	case CPP_CLOSE_BRACE:
+	  --nbraces;
+	  break;
+	case CPP_CLOSE_SQUARE:
+	  --nsquares;
+	  break;
+	case CPP_CLOSE_SPLICE:
+	  --nsplices;
+	  break;
+	default:
+	  break;
+	}
+      //store token in a list
+      cp_lexer_consume_token (parser->lexer);
+    }
+  while (nparens || nbraces || nsquares || nsplices);
+
+  return nreverse (list);
 }
 
 /* Skip a balanced-token starting at Nth token (with 1 as the next token),
