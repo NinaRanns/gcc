@@ -487,6 +487,7 @@ register_callback (const char *plugin_name,
       case PLUGIN_GGC_MARKING:
       case PLUGIN_GGC_END:
       case PLUGIN_ATTRIBUTES:
+      case PLUGIN_ATTRIBUTE_DECLARATION:
       case PLUGIN_PRAGMAS:
       case PLUGIN_FINISH:
       case PLUGIN_ALL_PASSES_START:
@@ -564,6 +565,7 @@ invoke_plugin_callbacks_full (int event, void *gcc_data)
       case PLUGIN_FINISH_UNIT:
       case PLUGIN_PRE_GENERICIZE:
       case PLUGIN_ATTRIBUTES:
+      case PLUGIN_ATTRIBUTE_DECLARATION:
       case PLUGIN_PRAGMAS:
       case PLUGIN_FINISH:
       case PLUGIN_GGC_START:

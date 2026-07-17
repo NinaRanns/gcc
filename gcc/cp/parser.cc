@@ -17573,6 +17573,13 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
 	    }
 	}
 
+      location_t ad_loc
+	= make_location (attrs_loc, attrs_loc, parser->lexer);
+      struct plugin_attribute_declaration_data ad;
+      ad.loc = ad_loc;
+      ad.attrs = &std_attrs;
+      invoke_plugin_callbacks (PLUGIN_ATTRIBUTE_DECLARATION, &ad);
+
       if (std_attrs != NULL_TREE && any_nonignored_attribute_p (std_attrs))
 	warning_at (make_location (attrs_loc, attrs_loc, parser->lexer),
 		    OPT_Wattributes, "attribute ignored");

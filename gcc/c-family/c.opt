@@ -1962,6 +1962,10 @@ fprofiles
 C++ ObjC++ Var(flag_profiles) Init(0)
 Enable C++ Profiles Framework (P3589).
 
+fprofiles-debug
+C++ ObjC++ Var(flag_profiles_debug) Init(0)
+Emit debug messages for C++ profiles attribute parsing.
+
 Enum
 Name(on_off) Type(int) UnknownError(argument %qs must be either %<on%> or %<off%>)
 

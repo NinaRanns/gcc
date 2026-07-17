@@ -31,10 +31,10 @@ along with GCC.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "cp/cp-tree.h"
 #include "cp/parser.h"
 #include "attribs.h"
+#include "options.h"
 #include "plugin-version.h"
 
 int plugin_is_GPL_compatible;
-
 
 struct profiles_tokens
 {
@@ -45,6 +45,44 @@ struct profiles_tokens
      when CUR has gone past END.  */
   cp_token *close_paren;
 };
+
+static bool
+profiles_debug_p ()
+{
+  return flag_profiles_debug;
+}
+
+#define profiles_debug(LOC, ...)					\
+  do {								\
+    if (profiles_debug_p ())					\
+      inform (LOC, __VA_ARGS__);				\
+  } while (0)
+
+/* Location-free debug log (no caret / line prefix).  */
+#define profiles_debug_log(...)					\
+  do {								\
+    if (profiles_debug_p ())					\
+      verbatim (__VA_ARGS__);					\
+  } while (0)
+
+/* Log one token from the attribute-argument-clause.  */
+
+static void
+profiles_debug_dump_token (const cp_token *t)
+{
+  gcc_checking_assert (t);
+  if (!profiles_debug_p ())
+    return;
+
+  if (t->type == CPP_NAME)
+    profiles_debug (t->location, "profiles: %qE", t->u.value);
+  else if (t->type == CPP_STRING || t->type == CPP_STRING16
+	   || t->type == CPP_STRING32 || t->type == CPP_UTF8STRING)
+    profiles_debug (t->location, "profiles: %qs",
+		    TREE_STRING_POINTER (t->u.value));
+  else
+    profiles_debug (t->location, "profiles: token %d", (int) t->type);
+}
 
 /* Check if we have reached the end of tokens.  */
 static bool
@@ -149,6 +187,7 @@ profiles_parse_argument (profiles_tokens &toks)
       && toks.cur + 1 < toks.close_paren
       && toks.cur[1].type == CPP_COLON)
     {
+
       tree name = toks.cur->u.value;
       toks.cur += 2;
 
@@ -407,6 +446,7 @@ profiles_plugin_enforce_attribute (tree *node, tree name, tree args,
   if (designators == error_mark_node
       || !profiles_finish_args (name, toks))
     return error_mark_node;
+
   return NULL_TREE;
 }
 
@@ -429,12 +469,14 @@ profiles_plugin_require_attribute (tree *node, tree name, tree args,
   if (designators == error_mark_node
       || !profiles_finish_args (name, toks))
     return error_mark_node;
+
   return NULL_TREE;
 }
 
 /*
   Handle profiles::suppress attribute.
 
+  [[profiles::suppress(profile-name)]]
   [[profiles::suppress(profile-name, profile-argument-list)]]
 
  */
@@ -445,7 +487,7 @@ profiles_plugin_suppress_attribute (tree *node, tree name, tree args,
 {
   profiles_tokens toks;
 
-  if (!profiles_extract_tokens(name, args, &toks))
+  if (!profiles_extract_tokens (name, args, &toks))
     return error_mark_node;
 
   tree profile_name = profiles_parse_name (toks);
@@ -453,21 +495,22 @@ profiles_plugin_suppress_attribute (tree *node, tree name, tree args,
   if (profile_name == error_mark_node)
     return error_mark_node;
 
-  if (profiles_tokens_done(toks))
-    return NULL_TREE;
-
-  if (!profiles_next_token(toks, CPP_COMMA))
+  /* Optional: , profile-argument-list  */
+  if (profiles_next_token (toks, CPP_COMMA))
+    {
+      toks.cur++;
+      if (profiles_parse_argument_list (toks) == error_mark_node)
+	return error_mark_node;
+    }
+  else if (!profiles_tokens_done (toks))
     {
       error_at (toks.cur->location, "expected %<,%>");
       return error_mark_node;
     }
 
-  toks.cur++;
-
-  tree profile_args = profiles_parse_argument_list (toks);
-
-  if (profile_args == error_mark_node || !profiles_finish_args(name, toks))
+  if (!profiles_finish_args (name, toks))
     return error_mark_node;
+
   return NULL_TREE;
 }
 
@@ -498,6 +541,50 @@ register_profiles_attributes (void * /*event_data*/, void * /*data*/)
   register_scoped_attributes (profiles_attribute_table);
 }
 
+/* PLUGIN_ATTRIBUTE_DECLARATION: handle [[profiles::...]]; at declaration
+   scope by running the same attribute handlers and removing attrs that
+   were accepted.  */
+
+static tree
+profiles_plugin_handle_attribute_decl (tree name, tree args)
+{
+  tree node = NULL_TREE;
+  bool no_add_attrs = false;
+  if (is_attribute_p ("enforce", name))
+    return profiles_plugin_enforce_attribute (&node, name, args, 0,
+					      &no_add_attrs);
+  if (is_attribute_p ("require", name))
+    return profiles_plugin_require_attribute (&node, name, args, 0,
+					      &no_add_attrs);
+  if (is_attribute_p ("suppress", name))
+    return profiles_plugin_suppress_attribute (&node, name, args, 0,
+					       &no_add_attrs);
+  return error_mark_node;
+}
+
+static void
+profiles_plugin_attribute_declaration (void *gcc_data, void *)
+{
+  struct plugin_attribute_declaration_data *data
+    = (struct plugin_attribute_declaration_data *) gcc_data;
+
+  for (tree *pa = data->attrs; *pa; )
+    {
+      tree ns = get_attribute_namespace (*pa);
+      if (ns && is_attribute_p ("profiles", ns))
+	{
+	  tree name = get_attribute_name (*pa);
+	  if (profiles_plugin_handle_attribute_decl (name, TREE_VALUE (*pa))
+	      != error_mark_node)
+	    {
+	      *pa = TREE_CHAIN (*pa);
+	      continue;
+	    }
+	}
+      pa = &TREE_CHAIN (*pa);
+    }
+}
+
 int
 plugin_init (struct plugin_name_args *plugin_info,
 	     struct plugin_gcc_version *version)
@@ -507,5 +594,7 @@ plugin_init (struct plugin_name_args *plugin_info,
 
   register_callback (plugin_info->base_name, PLUGIN_ATTRIBUTES,
 		     register_profiles_attributes, NULL);
+  register_callback (plugin_info->base_name, PLUGIN_ATTRIBUTE_DECLARATION,
+		     profiles_plugin_attribute_declaration, NULL);
   return 0;
 }

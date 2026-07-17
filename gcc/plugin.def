@@ -59,6 +59,10 @@ DEFEVENT (PLUGIN_REGISTER_GGC_ROOTS)
 /* Called during attribute registration.  */
 DEFEVENT (PLUGIN_ATTRIBUTES)
 
+/* Called when parsing an attribute-declaration
+   (attribute-specifier-seq ';').  */
+DEFEVENT (PLUGIN_ATTRIBUTE_DECLARATION)
+
 /* Called before processing a translation unit.  */
 DEFEVENT (PLUGIN_START_UNIT)
 

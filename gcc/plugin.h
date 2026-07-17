@@ -204,4 +204,13 @@ extern void register_attribute (const struct attribute_spec *attr);
 extern struct scoped_attributes* register_scoped_attributes (const struct scoped_attribute_spec &,
 							     bool);
 
+/* Data for PLUGIN_ATTRIBUTE_DECLARATION.  ATTRS points at the
+   attribute-specifier-seq; plugins may remove handled attributes from
+   the list by splicing the chain.  */
+struct plugin_attribute_declaration_data
+{
+  location_t loc;
+  tree *attrs;
+};
+
 #endif /* PLUGIN_H */
