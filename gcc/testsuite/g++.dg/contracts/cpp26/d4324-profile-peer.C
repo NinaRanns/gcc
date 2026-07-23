@@ -32,7 +32,7 @@ namespace core_ub {
 // A custom contract control object that records the violation and proceeds.
 static bool contract_handler_called = false;
 
-struct logging_control {
+struct logging_control_t {
   static constexpr bool is_ignored (sc::evaluation_config) { return false; }
   static constexpr bool constify = false;
   static constexpr bool assumable = false;
@@ -40,6 +40,7 @@ struct logging_control {
   operator() (const char*, std::source_location, sc::evaluation_config) const
   { contract_handler_called = true; }	// returns -> continue
 };
+inline constexpr logging_control_t logging_control {};
 
 int f (int x) pre<logging_control>(x > 0) { return x; }
 

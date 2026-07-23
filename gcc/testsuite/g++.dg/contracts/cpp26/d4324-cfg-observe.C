@@ -28,7 +28,7 @@ namespace sc = std::contracts;
 bool pred_obs ();
 bool pred_enf ();
 
-struct if_observe {
+struct if_observe_t {
   static constexpr bool is_ignored (sc::evaluation_config c)
   { return c != sc::evaluation_config::observe; }
   static constexpr bool constify = false;
@@ -36,8 +36,9 @@ struct if_observe {
   void operator() (const char *, std::source_location,
 		   sc::evaluation_config) const {}
 };
+inline constexpr if_observe_t if_observe {};
 
-struct if_enforce {
+struct if_enforce_t {
   static constexpr bool is_ignored (sc::evaluation_config c)
   { return c != sc::evaluation_config::enforce; }
   static constexpr bool constify = false;
@@ -45,14 +46,15 @@ struct if_enforce {
   void operator() (const char *, std::source_location,
 		   sc::evaluation_config) const {}
 };
+inline constexpr if_enforce_t if_enforce {};
 
 int f (int x) pre<if_observe>(pred_obs ()) pre<if_enforce>(pred_enf ())
 { return x; }
 
 // cfg == observe: the observe-keyed assertion is active.
 // { dg-final { scan-tree-dump "pred_obs" "gimple" } }
-// { dg-final { scan-tree-dump "if_observe::operator" "gimple" } }
+// { dg-final { scan-tree-dump "if_observe_t::operator" "gimple" } }
 // cfg != enforce: the enforce-keyed assertion is ignored, so its predicate is
 // never evaluated and its control is never called.
 // { dg-final { scan-tree-dump-not "pred_enf" "gimple" } }
-// { dg-final { scan-tree-dump-not "if_enforce::operator" "gimple" } }
+// { dg-final { scan-tree-dump-not "if_enforce_t::operator" "gimple" } }

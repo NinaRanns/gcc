@@ -115,10 +115,12 @@ enum detection_mode : uint16_t {
 #define CONTRACT_STD_SOURCE_LOC(NODE) \
   (TREE_OPERAND (CONTRACT_CHECK (NODE), 4))
 
-/* The optional control TYPE named as pre<T>/post<T>/contract_assert<T>.
-   NULL_TREE means the assertion uses the default control
-   (std::contracts::default_v).  */
-#define CONTRACT_CONTROL_TYPE(NODE) \
+/* The optional control OBJECT named as pre<obj>/post<obj>/
+   contract_assert<obj>, resolved by ordinary name lookup.  This is an
+   expression naming a constexpr object of class type (or, inside a template,
+   a dependent expression to be substituted).  NULL_TREE means the assertion
+   uses the default control (std::contracts::default_v).  */
+#define CONTRACT_CONTROL_OBJECT(NODE) \
   (TREE_OPERAND (CONTRACT_CHECK (NODE), 5))
 
 /* The VAR_DECL of a postcondition result. For deferred contracts, this
@@ -171,10 +173,19 @@ extern tree invalidate_contract			(tree);
 extern tree copy_and_remap_contracts		(tree, tree, contract_match_kind = cmk_all);
 extern tree constify_contract_access		(tree);
 extern tree view_as_const			(tree);
+/* True if the assertion's control OBJECT opts into constification (its type's
+   constify member is true).  Accepts the control object (or NULL_TREE for a
+   bare contract, which does not constify under D4324).  */
 extern bool contract_control_constifies		(tree);
 
+/* D4324: validate that a named control OBJECT's type models the required
+   assertion_control properties (constify/assumable convertible to bool, a
+   static is_ignored, and a call operator).  Diagnoses and returns false on
+   failure; a dependent object or NULL_TREE (bare contract) returns true.  */
+extern bool check_contract_control_object	(tree, location_t);
+
 /* True while parsing/substituting a contract condition that opts into
-   constification via its control type's constify member (D4324: off by
+   constification via its control object's constify member (D4324: off by
    default).  */
 extern bool contract_condition_constify_p;
 

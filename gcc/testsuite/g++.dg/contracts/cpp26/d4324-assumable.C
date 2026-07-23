@@ -7,6 +7,16 @@
 // { dg-additional-options "-fcontracts -fcontract-control-objects -fcontract-evaluation-semantic=ignore -O2 -fdump-tree-optimized" }
 
 namespace std {
+struct source_location {
+  struct __impl {
+    const char *_M_file_name;
+    const char *_M_function_name;
+    unsigned _M_line;
+    unsigned _M_column;
+  };
+  const __impl *_M_impl = nullptr;
+  constexpr source_location () = default;
+};
 namespace contracts {
 enum class evaluation_config : unsigned {
   ignore = 0, observe = 1, enforce = 2, quick_enforce = 3
@@ -14,12 +24,15 @@ enum class evaluation_config : unsigned {
 }
 }
 
-struct mandatory {
+struct mandatory_t {
   static constexpr bool is_ignored (std::contracts::evaluation_config c)
   { return c == std::contracts::evaluation_config::ignore; }
   static constexpr bool constify = false;
   static constexpr bool assumable = true;
+  void operator() (const char *, std::source_location,
+		   std::contracts::evaluation_config) const {}
 };
+inline constexpr mandatory_t mandatory {};
 
 void sink (int);
 

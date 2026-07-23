@@ -10,7 +10,7 @@
 bool logged = false;
 namespace sc = std::contracts;
 
-struct my_review {
+struct my_review_t {
   static constexpr bool is_ignored (sc::evaluation_config) { return false; }
   static constexpr bool constify = false;
   static constexpr bool assumable = false;
@@ -18,6 +18,7 @@ struct my_review {
   operator() (const char*, std::source_location, sc::evaluation_config) const
   { logged = true; }		// returns -> continue
 };
+inline constexpr my_review_t my_review {};
 
 int f (int x) pre<my_review>(x > 0) { return x; }
 

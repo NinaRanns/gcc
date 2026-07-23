@@ -33735,7 +33735,7 @@ cp_parser_late_contract_condition (cp_parser *parser, tree fn, tree contract)
      control type; otherwise P2900 constification (always on) applies, exactly
      as for early-parsed contracts.  */
   bool constify_p = flag_contract_control_objects
-    ? contract_control_constifies (CONTRACT_CONTROL_TYPE (contract))
+    ? contract_control_constifies (CONTRACT_CONTROL_OBJECT (contract))
     : true;
   auto constify_ovr = make_temp_override (contract_condition_constify_p,
 					  constify_p);
@@ -33813,50 +33813,65 @@ cp_parser_late_contracts (cp_parser *parser, tree fndecl)
   update_fn_contract_specifiers (fndecl, new_contracts);
 }
 
-/* Parse an optional contract control type appearing immediately after a
+/* Parse an optional contract control object appearing immediately after a
    contract introducer (pre / post / contract_assert):
 
-     contract-control-type:
-       < type-id >
+     contract-control-object:
+       < id-expression >
 
-   This names the assertion-control type T for the assertion, as in
-   pre<T>(cond).  Returns NULL_TREE when there is no '<' (the assertion
-   uses the default control), the parsed TYPE on success, or
+   This names the assertion-control object for the assertion, as in
+   pre<obj>(cond).  The object is named by an id-expression that is looked up
+   the way names normally are (so a qualified name such as
+   std::contracts::default_v, or a dependent name in a template, resolves
+   uniformly).  Returns NULL_TREE when there is no '<' (the assertion uses the
+   default control), the named object (an expression) on success, or
    error_mark_node on a malformed specifier.  */
 
 static tree
-cp_parser_contract_control_type (cp_parser *parser)
+cp_parser_contract_control_object (cp_parser *parser)
 {
   if (!cp_lexer_next_token_is (parser->lexer, CPP_LESS))
     return NULL_TREE;
 
   cp_lexer_consume_token (parser->lexer); /* Consume '<'.  */
 
-  /* Inside the angle brackets a '>' closes the control type rather than
-     acting as a greater-than operator.  */
+  /* Inside the angle brackets a '>' closes the specifier rather than acting
+     as a greater-than operator.  */
   bool saved_gtio = parser->greater_than_is_operator_p;
   parser->greater_than_is_operator_p = false;
 
-  tree type = cp_parser_type_id (parser, CP_PARSER_FLAGS_NONE, nullptr);
+  /* The control object is named by an id-expression, looked up as an ordinary
+     name.  Parse it as a constant-expression so unqualified, qualified,
+     template and dependent names all resolve through the normal machinery.  */
+  cp_expr obj_expr = cp_parser_constant_expression (parser);
+  tree object = obj_expr.get_value ();
 
   parser->greater_than_is_operator_p = saved_gtio;
 
-  /* A trailing '>>' is split so its first half closes this control type.  */
+  /* A trailing '>>' is split so its first half closes this specifier.  */
   if (cp_lexer_next_token_is (parser->lexer, CPP_RSHIFT))
     cp_lexer_peek_token (parser->lexer)->type = CPP_GREATER;
   else if (!cp_parser_require (parser, CPP_GREATER, RT_GREATER))
     return error_mark_node;
 
-  return type;
+  if (object == error_mark_node)
+    return error_mark_node;
+
+  object = tree_strip_any_location_wrapper (object);
+
+  /* The object's type is validated against the assertion_control requirements
+     in grok_contract (after the predicate is parsed), so a failure there just
+     drops the specifier without disturbing the surrounding parse.  */
+  return object;
 }
 
 /* Starting at the Nth token (1 is the next token), if it begins a contract
-   control type '< type-id >', return the index of the first token past the
-   closing '>'.  Otherwise, or on an unterminated specifier, return N.  Used
-   by the function-contract-specifier look-ahead.  */
+   control specifier '< id-expression >', return the index of the first token
+   past the closing '>'.  Otherwise, or on an unterminated specifier, return N.
+   Used by the function-contract-specifier look-ahead.  */
 
 static size_t
-cp_parser_skip_contract_control_type (cp_parser *parser, size_t n)
+cp_parser_skip_contract_control_object (cp_parser *parser, size_t n)
 {
   if (!cp_lexer_nth_token_is (parser->lexer, n, CPP_LESS))
     return n;
@@ -33900,9 +33915,9 @@ cp_parser_contract_assert (cp_parser *parser, cp_token *token)
   token = cp_lexer_consume_token (parser->lexer);
   location_t loc = token->location;
 
-  /* Parse the optional control type: contract_assert<T>(cond).  */
-  tree control_type = cp_parser_contract_control_type (parser);
-  if (control_type == error_mark_node)
+  /* Parse the optional control object: contract_assert<obj>(cond).  */
+  tree control_object = cp_parser_contract_control_object (parser);
+  if (control_object == error_mark_node)
     {
       cp_parser_skip_to_end_of_statement (parser);
       return error_mark_node;
@@ -33924,11 +33939,11 @@ cp_parser_contract_assert (cp_parser *parser, cp_token *token)
   auto suppression = make_temp_override (suppress_location_wrappers, 0);
 
   /* D4324: with control objects enabled, constification is opt-in via the
-     control type; otherwise P2900 constification (always on) applies.  When
+     control object; otherwise P2900 constification (always on) applies.  When
      constifying, treat the current class object as const in the condition
      too.  */
   bool constify_p = flag_contract_control_objects
-    ? contract_control_constifies (control_type)
+    ? contract_control_constifies (control_object)
     : true;
   auto constify_ovr = make_temp_override (contract_condition_constify_p,
 					  constify_p);
@@ -33945,7 +33960,7 @@ cp_parser_contract_assert (cp_parser *parser, cp_token *token)
 		       && scope_chain->bindings->kind == sk_contract);
   /* Build the contract.  */
   tree contract = grok_contract (cont_assert, /*mode*/NULL_TREE,
-			    /*result*/NULL_TREE, condition, loc, control_type);
+			    /*result*/NULL_TREE, condition, loc, control_object);
   processing_postcondition = old_pc;
   pop_bindings_and_leave_scope ();
 
@@ -33997,8 +34012,8 @@ cp_maybe_function_contract_specifier (cp_parser *parser)
     return NULL_TREE;
 
   size_t n = 2;
-  /* Skip the optional control type: pre<T> / post<T>.  */
-  n = cp_parser_skip_contract_control_type (parser, n);
+  /* Skip the optional control object: pre<obj> / post<obj>.  */
+  n = cp_parser_skip_contract_control_object (parser, n);
   if (cp_nth_tokens_can_be_std_attribute_p (parser, n))
     n = cp_parser_skip_std_attribute_spec_seq (parser, n);
   if (cp_lexer_nth_token_is (parser->lexer, n, CPP_OPEN_PAREN))
@@ -34033,9 +34048,9 @@ cp_parser_function_contract_specifier (cp_parser *parser)
   location_t loc = token->location;
   bool postcondition_p = id_equal (contract_name, "post");
 
-  /* Parse the optional control type: pre<T>(cond) / post<T>(r: cond).  */
-  tree control_type = cp_parser_contract_control_type (parser);
-  if (control_type == error_mark_node)
+  /* Parse the optional control object: pre<obj>(cond) / post<obj>(r: cond).  */
+  tree control_object = cp_parser_contract_control_object (parser);
+  if (control_object == error_mark_node)
     {
       cp_parser_skip_to_closing_parenthesis (parser,
 					     /*recovering=*/true,
@@ -34102,7 +34117,7 @@ cp_parser_function_contract_specifier (cp_parser *parser)
       if (identifier)
 	identifier.maybe_add_location_wrapper ();
       contract = grok_contract (contract_name, /*mode*/NULL_TREE, identifier,
-				condition, loc, control_type);
+				condition, loc, control_object);
     }
   else
     {
@@ -34110,11 +34125,11 @@ cp_parser_function_contract_specifier (cp_parser *parser)
       auto suppression = make_temp_override (suppress_location_wrappers, 0);
 
       /* D4324: with control objects enabled, constification is opt-in via the
-       control type; otherwise P2900 constification (always on) applies.  When
+       control object; otherwise P2900 constification (always on) applies.  When
        constifying, treat the current class object as const in the
        condition.  */
       bool constify_p = flag_contract_control_objects
-	? contract_control_constifies (control_type)
+	? contract_control_constifies (control_object)
 	: true;
       auto constify_ovr = make_temp_override (contract_condition_constify_p,
 					      constify_p);
@@ -34137,7 +34152,7 @@ cp_parser_function_contract_specifier (cp_parser *parser)
       cp_expr condition = cp_parser_conditional_expression (parser);
       /* Build the contract.  */
       contract = grok_contract (contract_name, /*mode*/NULL_TREE, result,
-				condition, loc, control_type);
+				condition, loc, control_object);
       if (identifier)
 	--processing_template_decl;
       processing_postcondition = old_pc;

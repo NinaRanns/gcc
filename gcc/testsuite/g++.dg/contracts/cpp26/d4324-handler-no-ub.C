@@ -11,7 +11,7 @@
 
 namespace sc = std::contracts;
 
-struct my_terminate_ctrl {
+struct my_terminate_ctrl_t {
   static constexpr bool is_ignored (sc::evaluation_config) { return false; }
   static constexpr bool constify = false;
   static constexpr bool assumable = false;
@@ -19,6 +19,7 @@ struct my_terminate_ctrl {
   operator() (const char*, std::source_location, sc::evaluation_config) const
   { std::terminate (); }
 };
+inline constexpr my_terminate_ctrl_t my_terminate_ctrl {};
 
 int f (int x) pre<my_terminate_ctrl>(x > 0) { return x; }
 

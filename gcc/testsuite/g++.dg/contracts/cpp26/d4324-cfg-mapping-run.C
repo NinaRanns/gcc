@@ -16,7 +16,7 @@ namespace sc = std::contracts;
 sc::evaluation_config seen = sc::evaluation_config::quick_enforce;
 bool called = false;
 
-struct capture {
+struct capture_t {
   static constexpr bool is_ignored (sc::evaluation_config) { return false; }
   static constexpr bool constify = false;
   static constexpr bool assumable = false;
@@ -24,6 +24,7 @@ struct capture {
   operator() (const char *, std::source_location, sc::evaluation_config c) const
   { seen = c; called = true; }		// returns -> continue
 };
+inline constexpr capture_t capture {};
 
 int f (int x) pre<capture>(x > 0) { return x; }
 

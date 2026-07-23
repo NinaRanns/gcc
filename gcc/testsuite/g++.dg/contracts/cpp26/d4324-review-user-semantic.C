@@ -19,7 +19,7 @@ enum class evaluation_config : unsigned {
 }
 
 bool logged;
-struct review {
+struct review_t {
   static constexpr bool is_ignored (std::contracts::evaluation_config) { return false; }
   static constexpr bool constify = false;
   static constexpr bool assumable = false;
@@ -28,10 +28,11 @@ struct review {
 	      std::contracts::evaluation_config) const
   { logged = true; }
 };
+inline constexpr review_t review {};
 
 int f (int x) pre<review>(x > 0) { return x; }
 
 // The user's operator() is called on violation, not a hard-coded semantic.
-// { dg-final { scan-tree-dump "review::operator" "gimple" } }
+// { dg-final { scan-tree-dump "review_t::operator" "gimple" } }
 // The built-in violation entry point is not used on the control path.
 // { dg-final { scan-tree-dump-not "__tu_has_violation" "gimple" } }

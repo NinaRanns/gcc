@@ -259,6 +259,7 @@ match_contract_specifiers (location_t oldloc, tree old_contracts,
 
 static bool contract_control_is_ignored (tree);
 static bool contract_control_assumable (tree);
+static tree contract_control_object_type (tree);
 
 /* Return true if CONTRACT is checked or assumed under the current build
    configuration. */
@@ -270,7 +271,8 @@ contract_active_p (tree contract)
      rather than the translation-unit semantic.  The assertion is active if it
      is not ignored (a runtime check or control-object dispatch runs) or if it
      is ignored but assumable (an optimizer assumption is emitted).  */
-  if (tree ctrl = CONTRACT_CONTROL_TYPE (contract))
+  if (tree ctrl = contract_control_object_type (CONTRACT_CONTROL_OBJECT
+						 (contract)))
     {
       if (!contract_control_is_ignored (ctrl))
 	return true;
@@ -2044,7 +2046,7 @@ rebuild_postconditions (tree fndecl)
 	 (e.g. auto return with post(r: check(r))).  Matching the parser's
 	 setting keeps the result const, exactly as P2900 requires.  */
       bool constify_p = flag_contract_control_objects
-	? contract_control_constifies (CONTRACT_CONTROL_TYPE (contract))
+	? contract_control_constifies (CONTRACT_CONTROL_OBJECT (contract))
 	: true;
       auto constify_ovr
 	= make_temp_override (contract_condition_constify_p, constify_p);
@@ -2087,12 +2089,20 @@ build_comment (cp_expr condition)
 
 tree
 grok_contract (tree contract_spec, tree mode, tree result, cp_expr condition,
-	       location_t loc, tree control_type /* = NULL_TREE */)
+	       location_t loc, tree control_object /* = NULL_TREE */)
 {
   if (condition == error_mark_node)
     return error_mark_node;
 
-  if (control_type == error_mark_node)
+  if (control_object == error_mark_node)
+    return error_mark_node;
+
+  /* D4324: a named control object's type must model the assertion_control
+     requirements.  Validate here (after the predicate has been parsed) so a
+     failure just drops this specifier - the error is issued and the enclosing
+     declaration keeps parsing.  A dependent control object is re-checked after
+     substitution.  */
+  if (!check_contract_control_object (control_object, loc))
     return error_mark_node;
 
   tree_code code;
@@ -2117,15 +2127,15 @@ grok_contract (tree contract_spec, tree mode, tree result, cp_expr condition,
 
   /* Build the contract. The condition is added later.  In the case that
      the contract is deferred, result an plain identifier, not a result
-     variable.  Operand 5 holds the optional control type; postconditions
+     variable.  Operand 5 holds the optional control object; postconditions
      store the result name at operand 6.  */
   tree contract;
   if (code != POSTCONDITION_STMT)
     contract = build_nt (code, mode, NULL_TREE, NULL_TREE, NULL_TREE,
-			 NULL_TREE, control_type);
+			 NULL_TREE, control_object);
   else
     contract = build_nt (code, mode, NULL_TREE, NULL_TREE, NULL_TREE,
-			 NULL_TREE, control_type, result);
+			 NULL_TREE, control_object, result);
   TREE_TYPE (contract) = void_type_node;
   SET_EXPR_LOCATION (contract, loc);
 
@@ -2978,6 +2988,24 @@ contract_evaluation_config_value ()
     }
 }
 
+/* Given the control OBJECT named by an assertion (an expression naming a
+   constexpr object, as stored in CONTRACT_CONTROL_OBJECT), return its class
+   type, or NULL_TREE for a bare contract or a non-class object.  The
+   compile-time control members (is_ignored/constify/assumable) are static and
+   are read off this type; the call operator is invoked on the object itself.  */
+
+static tree
+contract_control_object_type (tree obj)
+{
+  if (!obj || obj == error_mark_node)
+    return NULL_TREE;
+  tree type = TREE_TYPE (obj);
+  if (!type || type == error_mark_node)
+    return NULL_TREE;
+  type = TYPE_MAIN_VARIANT (non_reference (type));
+  return CLASS_TYPE_P (type) ? type : NULL_TREE;
+}
+
 /* If the assertion names a control type CTRL, constant-evaluate
    CTRL::is_ignored(cfg) for the current translation unit's cfg.  Returns true
    iff it folds to a compile-time true, meaning the assertion is ignored: no
@@ -3054,13 +3082,14 @@ contract_control_bool_member (tree ctrl, const char *name)
   return integer_onep (val) ? 1 : 0;
 }
 
-/* True if the control type CTRL opts into constification (constify == true).
-   A bare contract, or a control type without a true constify member, does not
-   constify.  */
+/* True if the assertion's control OBJECT opts into constification
+   (its type's constify == true).  OBJ is the control object (or NULL_TREE for
+   a bare contract, which does not constify).  */
 
 bool
-contract_control_constifies (tree ctrl)
+contract_control_constifies (tree obj)
 {
+  tree ctrl = contract_control_object_type (obj);
   return contract_control_bool_member (ctrl, "constify") == 1;
 }
 
@@ -3108,6 +3137,112 @@ contract_control_operator (tree ctrl)
   return NULL_TREE;
 }
 
+/* True if CTRL has a static data member NAME whose value models bool(NAME),
+   i.e. is explicitly convertible to bool (the assertion_control concept
+   requires { bool(_Tp::constify) } and { bool(_Tp::assumable) }).  */
+
+static bool
+contract_control_has_bool_member (tree ctrl, const char *name)
+{
+  tree m = lookup_member (ctrl, get_identifier (name),
+			  /*protect=*/1, /*want_type=*/false, tf_none);
+  if (!m || m == error_mark_node || BASELINK_P (m) || TREE_CODE (m) != VAR_DECL)
+    return false;
+  /* Model bool(CTRL::NAME): static_cast<bool> is well-formed iff the
+     functional-notation conversion is.  */
+  tree conv = build_static_cast (input_location, boolean_type_node, m, tf_none);
+  return conv && conv != error_mark_node;
+}
+
+/* True if CTRL has a static member function NAME taking NARGS user
+   parameters (used to check for is_ignored(evaluation_config)).  */
+
+static bool
+contract_control_has_static_fn (tree ctrl, const char *name, int nargs)
+{
+  tree fns = lookup_member (ctrl, get_identifier (name),
+			    /*protect=*/1, /*want_type=*/false, tf_none);
+  if (!fns || fns == error_mark_node || !BASELINK_P (fns))
+    return false;
+  for (ovl_iterator it (BASELINK_FUNCTIONS (fns)); it; ++it)
+    {
+      tree fn = *it;
+      if (TREE_CODE (fn) != FUNCTION_DECL || !DECL_STATIC_FUNCTION_P (fn))
+	continue;
+      int n = 0;
+      for (tree t = FUNCTION_FIRST_USER_PARMTYPE (fn);
+	   t && t != void_list_node; t = TREE_CHAIN (t))
+	++n;
+      if (n == nargs)
+	return true;
+    }
+  return false;
+}
+
+/* D4324: check that OBJ (the control object named by an assertion) is a
+   constexpr object whose type models the assertion_control requirements: a
+   constify and an assumable member each convertible to bool, a static
+   is_ignored(evaluation_config), and a call operator taking
+   (const char *, std::source_location, evaluation_config).  A bare contract
+   (NULL_TREE, i.e. no control object was named) is always fine and uses the
+   default built-in semantic; but once a control object *is* named it must
+   provide the full interface, including the call operator.  A dependent object
+   is accepted here and re-checked after substitution.  Diagnoses each
+   missing/ill-typed property at LOC and returns false; returns true when
+   acceptable.  */
+
+bool
+check_contract_control_object (tree obj, location_t loc)
+{
+  if (!obj || obj == error_mark_node)
+    return true;
+  if (type_dependent_expression_p (obj)
+      || instantiation_dependent_expression_p (obj))
+    return true;
+
+  tree type = contract_control_object_type (obj);
+  if (!type)
+    {
+      error_at (loc, "assertion-control specifier must name an object of "
+		"class type");
+      return false;
+    }
+  complete_type (type);
+  if (!COMPLETE_TYPE_P (type))
+    {
+      error_at (loc, "assertion-control object has incomplete type %qT", type);
+      return false;
+    }
+
+  bool ok = true;
+  if (!contract_control_has_bool_member (type, "constify"))
+    {
+      error_at (loc, "assertion-control object of type %qT has no %<constify%> "
+		"member convertible to %<bool%>", type);
+      ok = false;
+    }
+  if (!contract_control_has_bool_member (type, "assumable"))
+    {
+      error_at (loc, "assertion-control object of type %qT has no %<assumable%> "
+		"member convertible to %<bool%>", type);
+      ok = false;
+    }
+  if (!contract_control_has_static_fn (type, "is_ignored", 1))
+    {
+      error_at (loc, "assertion-control object of type %qT has no static "
+		"%<is_ignored%> member function", type);
+      ok = false;
+    }
+  if (!contract_control_operator (type))
+    {
+      error_at (loc, "assertion-control object of type %qT has no call operator "
+		"taking %<(const char *, std::source_location, "
+		"std::contracts::evaluation_config)%>", type);
+      ok = false;
+    }
+  return ok;
+}
+
 /* Build the D4324 control-object dispatch call for CONTRACT: a single call
    to CTRL's operator()(comment, loc, cfg), where OP is that operator (used
    for its parameter types).  Returns an expression of type violation_response,
@@ -3122,7 +3257,7 @@ contract_control_operator (tree ctrl)
    expression or error_mark_node.  */
 
 static tree
-build_contract_control_call (tree contract, tree ctrl, tree op, tree cc_bind)
+build_contract_control_call (tree contract, tree obj, tree op, tree cc_bind)
 {
   location_t loc = EXPR_LOCATION (contract);
   tree pt = FUNCTION_FIRST_USER_PARMTYPE (op);
@@ -3149,18 +3284,13 @@ build_contract_control_call (tree contract, tree ctrl, tree op, tree cc_bind)
 
   tree cfg_arg = build_int_cst (t_cfg, contract_evaluation_config_value ());
 
-  /* Build a zero-initialized control object on the stack; register it.  */
-  tree ctrl_var = build_decl (loc, VAR_DECL, NULL_TREE, ctrl);
-  DECL_ARTIFICIAL (ctrl_var) = true;
-  DECL_IGNORED_P (ctrl_var) = true;
-  DECL_CONTEXT (ctrl_var) = current_function_decl;
-  layout_decl (ctrl_var, 0);
-  DECL_INITIAL (ctrl_var) = build_zero_cst (ctrl);
-  DECL_CHAIN (ctrl_var) = BIND_EXPR_VARS (cc_bind);
-  BIND_EXPR_VARS (cc_bind) = ctrl_var;
-  add_decl_expr (ctrl_var);
-
-  tree this_arg = build_fold_addr_expr (ctrl_var);
+  /* D4324: the call operator is invoked on the named control object itself
+     (its address), not on a synthesized temporary, so that a stateful control
+     object observes its own state.  */
+  obj = tree_strip_any_location_wrapper (obj);
+  if (DECL_P (obj))
+    mark_used (obj);
+  tree this_arg = cp_build_addr_expr (obj, tf_warning_or_error);
   tree this_type = TREE_TYPE (DECL_ARGUMENTS (op));
   this_arg = fold_convert (this_type, this_arg);
 
@@ -3183,7 +3313,8 @@ build_contract_control_call (tree contract, tree ctrl, tree op, tree cc_bind)
 tree
 build_contract_check (tree contract)
 {
-  tree ctrl = CONTRACT_CONTROL_TYPE (contract);
+  tree ctrl_obj = CONTRACT_CONTROL_OBJECT (contract);
+  tree ctrl = contract_control_object_type (ctrl_obj);
 
   /* D4324 step 1: a named control type decides, at compile time, whether this
      assertion is ignored for the TU's evaluation_config.  An ignored
@@ -3353,8 +3484,8 @@ build_contract_check (tree contract)
     /* D4324 step 3: a single call to T::operator()(comment, loc, cfg).  The
        operator returns void; returning means proceed, and terminating is the
        control object's own responsibility (it terminates in its body).  */
-    finish_expr_stmt (build_contract_control_call (contract, ctrl, control_op,
-						   cc_bind));
+    finish_expr_stmt (build_contract_control_call (contract, ctrl_obj,
+						   control_op, cc_bind));
   else if (quick)
     /* We will not be calling a handler.  */
     finish_expr_stmt (build_call_a (terminate_wrapper, 0, nullptr));
