@@ -2962,12 +2962,17 @@ remap_retval_1 (tree *here, int *do_subtree, void *d)
 }
 
 static void
-remap_retval (tree fndecl, tree contract)
+remap_retval (tree fndecl, tree contract, tree to = NULL_TREE)
 {
   struct replace_tree data;
   data.from = POSTCONDITION_IDENTIFIER (contract);
-  gcc_checking_assert (DECL_RESULT (fndecl));
-  data.to = DECL_RESULT (fndecl);
+  if (to)
+    data.to = to;
+  else
+    {
+      gcc_checking_assert (DECL_RESULT (fndecl));
+      data.to = DECL_RESULT (fndecl);
+    }
   walk_tree (&CONTRACT_CONDITION (contract), remap_retval_1, &data, NULL);
 }
 
@@ -3360,9 +3365,36 @@ build_contract_check (tree contract)
   if (condition == error_mark_node)
     return NULL_TREE;
 
+  /* When an inlined postcondition takes the address of the result object -
+     e.g. calls a member function on it, binds it to a reference, or applies
+     &r - it cannot use DECL_RESULT directly for a value returned in a
+     register, which has no address (expand would ICE in
+     expand_expr_addr_expr_1).  In that case evaluate the predicate against an
+     addressable copy of the result and copy it back afterwards, so any
+     modification the predicate makes to the result still reaches the caller
+     (as it does when DECL_RESULT is used directly).  This only matters for
+     trivially-copyable types; non-trivially-copyable results are returned in
+     memory, where DECL_RESULT is already addressable, so those keep using it
+     directly.  */
+  tree post_result_copy = NULL_TREE;
   if (!flag_contract_checks_outlined && POSTCONDITION_P (contract))
     {
-      remap_retval (current_function_decl, contract);
+      tree id = POSTCONDITION_IDENTIFIER (contract);
+      tree rtype = TREE_TYPE (DECL_RESULT (current_function_decl));
+      if (id && id != error_mark_node && TREE_ADDRESSABLE (id)
+	  && trivially_copyable_p (rtype) && !assumable)
+	{
+	  post_result_copy = build_decl (EXPR_LOCATION (contract), VAR_DECL,
+					 NULL_TREE, rtype);
+	  DECL_ARTIFICIAL (post_result_copy) = true;
+	  DECL_IGNORED_P (post_result_copy) = true;
+	  DECL_CONTEXT (post_result_copy) = current_function_decl;
+	  TREE_ADDRESSABLE (post_result_copy) = true;
+	  layout_decl (post_result_copy, 0);
+	  remap_retval (current_function_decl, contract, post_result_copy);
+	}
+      else
+	remap_retval (current_function_decl, contract);
       condition = CONTRACT_CONDITION (contract);
       if (condition == error_mark_node)
 	return NULL_TREE;
@@ -3385,6 +3417,19 @@ build_contract_check (tree contract)
      potentially wrapped in a try-catch expr (P2900 mode only).  */
   tree cc_bind = build3 (BIND_EXPR, void_type_node, NULL, NULL, NULL);
   BIND_EXPR_BODY (cc_bind) = push_stmt_list ();
+
+  /* Materialise the addressable copy of the result (see above) before the
+     predicate that refers to it.  The type is trivially copyable, so the
+     INIT_EXPR is a plain copy and no destructor is needed.  */
+  if (post_result_copy)
+    {
+      add_decl_expr (post_result_copy);
+      DECL_CHAIN (post_result_copy) = BIND_EXPR_VARS (cc_bind);
+      BIND_EXPR_VARS (cc_bind) = post_result_copy;
+      finish_expr_stmt
+	(cp_build_init_expr (post_result_copy,
+			     DECL_RESULT (current_function_decl)));
+    }
 
   if (TREE_CODE (contract) == ASSERTION_STMT)
     emit_builtin_observable_checkpoint ();
@@ -3493,6 +3538,13 @@ build_contract_check (tree contract)
     finish_expr_stmt (build_call_n (tu_has_violation, 2, violation, s_const));
   finish_then_clause (do_check);
   finish_if_stmt (do_check);
+
+  /* Copy the (possibly modified) result back so a predicate that mutates the
+     result through the addressable copy still affects the returned value.  */
+  if (post_result_copy)
+    finish_expr_stmt
+      (cp_build_modify_expr (loc, DECL_RESULT (current_function_decl),
+			     NOP_EXPR, post_result_copy, tf_warning_or_error));
 
   BIND_EXPR_BODY (cc_bind) = pop_stmt_list (BIND_EXPR_BODY (cc_bind));
   return cc_bind;
