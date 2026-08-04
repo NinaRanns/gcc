@@ -1,4 +1,4 @@
-// { dg-do compile }
+// { dg-do compile { target c++11 } }
 // { dg-options "-fprofiles" }
 //
 // Syntax coverage for:

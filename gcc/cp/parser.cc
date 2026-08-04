@@ -34048,6 +34048,73 @@ cp_token_is_operator_or_punctuator_p (cp_token *token)
   return token->type <= CPP_LAST_PUNCTUATOR;
 }
 
+/* Consume a single non-comma balanced-token used as a profile-argument
+   value.  Return true and consume the balanced-token on success; return
+   false without consuming anything on failure.
+
+   Unlike cp_parser_skip_balanced_tokens, this stays within the enclosing
+   scope: a closing bracket that would take a nesting counter below zero
+   marks the end of the enclosing profile-argument-list, so it is a failure
+   rather than something to scan past.  This is what makes a missing value
+   such as the ')' in 'name:' a hard error regardless of what tokens
+   follow on later lines.
+
+   A comma is a balanced-token but is excluded here; callers reject it
+   separately so the diagnostic can be produced without consuming it.  */
+
+static bool
+cp_parser_profiles_consume_balanced_token (cp_parser *parser)
+{
+  switch (cp_lexer_peek_token (parser->lexer)->type)
+    {
+    case CPP_EOF:
+    case CPP_CLOSE_PAREN:
+    case CPP_CLOSE_BRACE:
+    case CPP_CLOSE_SQUARE:
+      return false;
+    default:
+      break;
+    }
+
+  size_t n = 1;
+  int nparens = 0, nbraces = 0, nsquares = 0;
+  do
+    switch (cp_lexer_peek_nth_token (parser->lexer, n++)->type)
+      {
+      case CPP_EOF:
+	/* Ran out of tokens before the balanced-token was terminated.  */
+	return false;
+      case CPP_OPEN_PAREN:
+	++nparens;
+	break;
+      case CPP_OPEN_BRACE:
+	++nbraces;
+	break;
+      case CPP_OPEN_SQUARE:
+	++nsquares;
+	break;
+      case CPP_CLOSE_PAREN:
+	if (--nparens < 0)
+	  return false;
+	break;
+      case CPP_CLOSE_BRACE:
+	if (--nbraces < 0)
+	  return false;
+	break;
+      case CPP_CLOSE_SQUARE:
+	if (--nsquares < 0)
+	  return false;
+	break;
+      default:
+	break;
+      }
+  while (nparens || nbraces || nsquares);
+
+  for (; --n; )
+    cp_lexer_consume_token (parser->lexer);
+  return true;
+}
+
 /* Parse a profile-argument
 
 profile-argument:
@@ -34076,22 +34143,16 @@ cp_parser_profiles_argument (cp_parser *parser)
       cp_lexer_consume_token (parser->lexer);
 
       next_token = cp_lexer_peek_token (parser->lexer);
-      if (next_token->type == CPP_COMMA)
+      /* The value is a single non-comma balanced-token.  A comma is
+	 excluded by the grammar, and a closing bracket or end of input is
+	 not the start of a balanced-token.  */
+      if (next_token->type == CPP_COMMA
+	  || !cp_parser_profiles_consume_balanced_token (parser))
 	{
 	  error_at (next_token->location,
 		    "expected a non-comma-balanced-token");
 	  return error_mark_node;
 	}
-
-      size_t n = cp_parser_skip_balanced_tokens (parser, 1);
-      if (n == 1)
-	{
-	  error_at (next_token->location,
-		    "expected a non-comma-balanced-token");
-	  return error_mark_node;
-	}
-      for (; --n; )
-	cp_lexer_consume_token (parser->lexer);
       return arg;
     }
 

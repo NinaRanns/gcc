@@ -1,4 +1,4 @@
-// { dg-do compile }
+// { dg-do compile { target c++11 } }
 // { dg-options "-fprofiles" }
 
 // Paper-shaped: single simple profile-name.
@@ -61,6 +61,15 @@
 
 // String literal as a positional argument.
 [[profiles::enforce(acme("CoreCheck"))]];
+
+// Raw string literal as a named argument value.
+[[profiles::enforce(acme(name: R"(CoreCheck)"))]];
+
+// Raw string literal as a positional argument.
+[[profiles::enforce(acme(R"(CoreCheck)"))]];
+
+// Raw string literal with a custom delimiter as a named argument value.
+[[profiles::enforce(acme(name: R"xyz(Core"Check)xyz"))]];
 
 // Integer positional argument.
 [[profiles::enforce(acme(3))]];
@@ -196,3 +205,10 @@
 
 // Valid again: ']]' inside a string does not end the attribute.
 [[profiles::enforce(acme(j: "]]"))]];
+
+// Valid again: ']]' inside a raw string does not end the attribute either.
+[[profiles::enforce(acme(j: R"(]])"))]];
+
+// Valid again: a raw string is one token, so its inner '(' ')' are not
+// balanced-token delimiters.
+[[profiles::enforce(acme(rule: R"(a(b)c)"))]];

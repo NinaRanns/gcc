@@ -1,4 +1,4 @@
-// { dg-do compile }
+// { dg-do compile { target c++11 } }
 // { dg-options "-fprofiles" }
 
 // Paper-shaped examples: named rule / justification with string values.
