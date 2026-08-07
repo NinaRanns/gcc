@@ -35,7 +35,7 @@ gtfiles="\
 \$(srcdir)/cp/name-lookup.h \$(srcdir)/cp/cp-tree.h \
 \$(srcdir)/c-family/c-common.h \$(srcdir)/c-family/c-objc.h \
 \$(srcdir)/c-family/c-pragma.h \$(srcdir)/cp/decl.h \
-\$(srcdir)/cp/parser.h \
+\$(srcdir)/cp/parser.h \$(srcdir)/cp/profiles.h \
 \$(srcdir)/c-family/c-common.cc \$(srcdir)/c-family/c-format.cc \
 \$(srcdir)/c-family/c-cppbuiltin.cc \$(srcdir)/c-family/c-pragma.cc \
 \$(srcdir)/cp/call.cc \$(srcdir)/cp/class.cc \$(srcdir)/cp/constexpr.cc \
@@ -50,7 +50,7 @@ gtfiles="\
 \$(srcdir)/cp/lambda.cc \$(srcdir)/cp/lex.cc \$(srcdir)/cp/logic.cc \
 \$(srcdir)/cp/mangle.cc \$(srcdir)/cp/method.cc \$(srcdir)/cp/module.cc \
 \$(srcdir)/cp/name-lookup.cc \
-\$(srcdir)/cp/parser.cc \$(srcdir)/cp/pt.cc \
+\$(srcdir)/cp/parser.cc \$(srcdir)/cp/profiles.cc \$(srcdir)/cp/pt.cc \
 \$(srcdir)/cp/reflect.cc \$(srcdir)/cp/rtti.cc \
 \$(srcdir)/cp/semantics.cc \
 \$(srcdir)/cp/tree.cc \$(srcdir)/cp/typeck2.cc \
