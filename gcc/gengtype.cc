@@ -1980,6 +1980,11 @@ struct file_rule_st files_rules[] = {
     REG_EXTENDED, NULL_REGEX,
     "gt-cp-parser.h", "cp/parser.cc", NULL_FRULACT },
 
+  /* cp/profiles.h gives gt-cp-profiles.h for cp/profiles.cc !  */
+  { DIR_PREFIX_REGEX "cp/profiles\\.h$",
+    REG_EXTENDED, NULL_REGEX,
+    "gt-cp-profiles.h", "cp/profiles.cc", NULL_FRULACT },
+
   /* objc/objc-act.h gives gt-objc-objc-act.h for objc/objc-act.cc !  */
   { DIR_PREFIX_REGEX "objc/objc-act\\.h$",
     REG_EXTENDED, NULL_REGEX,

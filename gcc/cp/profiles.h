@@ -32,4 +32,43 @@ enum profiles_attr_kind : uint16_t {
   PAK_EXEMPT = 4,
 };
 
+/* A profile-enforcement seen in the current translation unit.  More
+   information will be added here as the profiles framework grows.  */
+
+struct GTY(()) profile_enforcement {
+  /* The profile-enforcement designator as a single tree: TREE_PURPOSE is the
+     profile-name and TREE_VALUE is the deferred argument clause
+     (a DEFERRED_PARSE), or NULL_TREE when there was no argument clause.  */
+  tree enforcement;
+  /* Where the enforcement appeared, for diagnostics.  */
+  location_t location;
+};
+
+/* Record ENFORCEMENT (a TREE_LIST whose TREE_PURPOSE is the profile-name and
+   whose TREE_VALUE is the deferred argument clause), appearing at LOCATION, as
+   seen in the current translation unit.  If a profile-enforcement with the same
+   name was already recorded, return it when the arguments match, or report an
+   error and return NULL when they differ; otherwise store and return the new
+   (or existing matching) profile_enforcement.  */
+extern profile_enforcement *add_profile_enforcement (tree enforcement,
+						    location_t location);
+
+/* If a profile-enforcement with the given NAME has been recorded in the
+   current translation unit, return it; otherwise return NULL.  */
+extern profile_enforcement *profile_enforcement_exists (tree name);
+
+/* Return a malloc'd spelling of ARGS (a DEFERRED_PARSE argument clause,
+   a STRING_CST of a previously serialized spelling, or NULL_TREE).
+   Caller must free.  */
+extern char *profile_enforcement_args_spelling (tree args);
+
+/* Convert DEFERRED_PARSE argument clauses in ENFORCEMENTS to STRING_CST
+   spellings so they remain valid after the parser's token caches are gone.
+   No-op if already STRING_CST or NULL.  */
+extern tree materialize_profile_enforcement_args (tree enforcements);
+
+/* True if the two profile-designator argument clauses match for the purpose
+   of matching a profiles::require against an exported profiles::enforce.  */
+extern bool profile_designator_args_match (tree a, tree b);
+
 #endif /* GCC_CP_PROFILES_H */

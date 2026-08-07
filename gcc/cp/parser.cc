@@ -33764,7 +33764,8 @@ cp_parser_profile_designator_args (cp_parser *parser)
   return args;
 }
 
-/* Parse the argument clause of a profile-enforcement designator.
+/* Parse the argument clause of a profile-enforcement designator and record
+   the enforcement.
 
    NAME is the (possibly qualified) profile-name that has just been consumed;
    PARSER is positioned immediately after it, and LOC is the location of the
@@ -33775,8 +33776,9 @@ cp_parser_profile_designator_args (cp_parser *parser)
 
    The profile-enforcement is built as a TREE_LIST whose TREE_PURPOSE is NAME
    and whose TREE_VALUE is the DEFERRED_PARSE holding the argument tokens (or
-   NULL_TREE when there is no argument clause), and returned.  error_mark_node
-   is returned if the argument clause is malformed.  */
+   NULL_TREE when there is no argument clause), recorded for this translation
+   unit, and returned.  error_mark_node is returned if the argument clause is
+   malformed.  */
 
 static tree
 cp_parser_prof_enforce (cp_parser *parser, tree name, location_t loc)
@@ -33787,7 +33789,17 @@ cp_parser_prof_enforce (cp_parser *parser, tree name, location_t loc)
   if (args == error_mark_node)
     return error_mark_node;
 
-  return build_tree_list (name, args);
+  tree enforcement = build_tree_list (name, args);
+
+  /* Record the enforcement.  A conflict with a previously seen enforcement of
+     the same name is diagnosed by add_profile_enforcement, but the tokens are
+     still well-formed, so return NULL_TREE (rather than error_mark_node) to
+     let attribute parsing finish cleanly without publishing the conflicting
+     designator.  */
+  profile_enforcement *pe = add_profile_enforcement (enforcement, loc);
+  if (!pe)
+    return NULL_TREE;
+  return pe->enforcement;
 }
 
 /* Parse a profiles::require designator: same argument-clause retention as
@@ -33827,7 +33839,8 @@ cp_parser_profiles_designator (cp_parser *parser,
   if (profile_name == error_mark_node)
     return error_mark_node;
 
-  /* An enforce designator defers its argument clause.  */
+  /* An enforce designator defers its argument clause and is recorded as a
+     profile-enforcement for the translation unit.  */
   if (kind == PAK_ENFORCE)
     return cp_parser_prof_enforce (parser, profile_name, loc);
 

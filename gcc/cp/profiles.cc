@@ -1,0 +1,409 @@
+/* Support for the C++ profiles framework.
+   Copyright (C) 2026 Free Software Foundation, Inc.
+
+This file is part of GCC.
+
+GCC is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3, or (at your option)
+any later version.
+
+GCC is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GCC; see the file COPYING3.  If not see
+<http://www.gnu.org/licenses/>.  */
+
+#include "config.h"
+#include "system.h"
+#include "coretypes.h"
+#include "cp-tree.h"
+#include "stringpool.h"
+#include "diagnostic.h"
+#include "attribs.h"
+#include "cpplib.h"
+#include "parser.h"
+#include "tree-pretty-print.h"
+#include "profiles.h"
+
+/* All profile-enforcements found in the current translation unit, in the
+   order they were seen.  Each element is GC-allocated so pointers remain
+   valid after further pushes.  */
+
+static GTY(()) vec<profile_enforcement *, va_gc> *profile_enforcements;
+
+/* Return true if the tree values associated with two tokens are the same.
+   Token values are not general C++ expressions: in particular, string
+   tokens produced under C_LEX_STRING_NO_JOIN are STRING_CSTs with a NULL
+   TREE_TYPE, so cp_tree_equal (which type-checks constants via comptypes)
+   must not be used on them.  */
+
+static bool
+profile_token_values_equal (tree a, tree b)
+{
+  if (a == b)
+    return true;
+  if (a == NULL_TREE || b == NULL_TREE)
+    return false;
+  if (TREE_CODE (a) != TREE_CODE (b))
+    return false;
+
+  switch (TREE_CODE (a))
+    {
+    case STRING_CST:
+      return (TREE_STRING_LENGTH (a) == TREE_STRING_LENGTH (b)
+	      && !memcmp (TREE_STRING_POINTER (a), TREE_STRING_POINTER (b),
+			  TREE_STRING_LENGTH (a)));
+
+    case INTEGER_CST:
+      return tree_int_cst_equal (a, b);
+
+    case REAL_CST:
+      return real_identical (&TREE_REAL_CST (a), &TREE_REAL_CST (b));
+
+    default:
+      /* Identifiers and other token values are pointer-canonical.  */
+      return false;
+    }
+}
+
+/* True if TOKEN is a literal: a number, or a character or string literal.
+   The identity of a literal in a profile-argument is its spelling, not
+   its value ([decl.profile.enforce]/3 compares token sequences), so 3 and
+   0x3 are different arguments.  */
+
+static bool
+profile_literal_token_p (const cp_token *token)
+{
+  switch (token->type)
+    {
+    case CPP_NUMBER:
+    case CPP_CHAR:
+    case CPP_WCHAR:
+    case CPP_CHAR16:
+    case CPP_CHAR32:
+    case CPP_UTF8CHAR:
+    case CPP_STRING:
+    case CPP_STRING16:
+    case CPP_STRING32:
+    case CPP_WSTRING:
+    case CPP_UTF8STRING:
+      return true;
+    default:
+      return false;
+    }
+}
+
+/* Return the source spelling of TOKEN, which the caller must free, or NULL
+   if the source text is not available.  */
+
+static char *
+profile_token_source_spelling (const cp_token *token)
+{
+  return get_source_text_between (global_dc->get_file_cache (),
+				  get_start (token->location),
+				  get_finish (token->location));
+}
+
+/* Return true if the deferred profile-argument clauses A and B consist of the
+   same token sequence.  A and B are each the ARGS of a profile-enforcement: a
+   DEFERRED_PARSE holding the cached argument tokens, or NULL_TREE when the
+   designator had no argument clause.  Token locations are ignored; only the
+   token kind, keyword and associated value are compared.  */
+
+static bool
+profile_enforcement_args_equal (tree a, tree b)
+{
+  if (a == b)
+    return true;
+  if (a == NULL_TREE || b == NULL_TREE)
+    return false;
+
+  cp_token_cache *ca = DEFPARSE_TOKENS (a);
+  cp_token_cache *cb = DEFPARSE_TOKENS (b);
+
+  if (ca->last - ca->first != cb->last - cb->first)
+    return false;
+
+  for (cp_token *ta = ca->first, *tb = cb->first; ta < ca->last; ++ta, ++tb)
+    {
+      if (ta->type != tb->type
+	  || ta->keyword != tb->keyword
+	  || ta->tree_check_p != tb->tree_check_p)
+	return false;
+
+      tree va = ta->tree_check_p ? ta->u.tree_check_value->value : ta->u.value;
+      tree vb = tb->tree_check_p ? tb->u.tree_check_value->value : tb->u.value;
+      if (profile_literal_token_p (ta))
+	{
+	  /* A literal is the same token only if it is spelled the same.  */
+	  char *sa = profile_token_source_spelling (ta);
+	  char *sb = profile_token_source_spelling (tb);
+	  bool same = (sa && sb) ? strcmp (sa, sb) == 0
+				 : profile_token_values_equal (va, vb);
+	  free (sa);
+	  free (sb);
+	  if (!same)
+	    return false;
+	}
+      else if (!profile_token_values_equal (va, vb))
+	return false;
+    }
+
+  return true;
+}
+
+/* Record ENFORCEMENT (a TREE_LIST whose TREE_PURPOSE is the profile-name and
+   whose TREE_VALUE is the deferred argument clause), appearing at LOCATION, as
+   seen in this translation unit.
+
+   If a profile-enforcement with the same profile-name has already been
+   recorded, its argument clause is compared against ENFORCEMENT's: if they
+   consist of the same tokens the previously stored enforcement is returned,
+   otherwise an error is issued and NULL is returned.  Otherwise
+   ENFORCEMENT is stored and returned.  */
+
+profile_enforcement *
+add_profile_enforcement (tree enforcement, location_t location)
+{
+  tree name = TREE_PURPOSE (enforcement);
+  profile_enforcement *existing = profile_enforcement_exists (name);
+  if (existing != NULL)
+    {
+      /* Existing args may already be STRING_CST spellings; the new clause
+	 may still be a live DEFERRED_PARSE.  */
+      if (profile_designator_args_match (TREE_VALUE (existing->enforcement),
+					 TREE_VALUE (enforcement)))
+	return existing;
+
+      error_at (location,
+		"profile %qE already loaded with different arguments", name);
+      inform (existing->location, "previously loaded here");
+      return NULL;
+    }
+
+  /* Materialize argument spellings while token caches are still live
+     (see materialize_profile_enforcement_args).  */
+  materialize_profile_enforcement_args (enforcement);
+
+  profile_enforcement *pe = ggc_alloc<profile_enforcement> ();
+  pe->enforcement = enforcement;
+  pe->location = location;
+  vec_safe_push (profile_enforcements, pe);
+  return pe;
+}
+
+/* If a profile-enforcement with the given NAME has been recorded in this
+   translation unit, return it; otherwise return NULL.  */
+
+profile_enforcement *
+profile_enforcement_exists (tree name)
+{
+  unsigned int i;
+  for (i = 0; i < vec_safe_length (profile_enforcements); i++)
+    {
+      profile_enforcement *pe = (*profile_enforcements)[i];
+      tree existing_name = TREE_PURPOSE (pe->enforcement);
+      /* Profile-names are get_identifier results, so pointer equality is
+	 enough; do not use cp_tree_equal on them.  */
+      if (existing_name == name)
+	return pe;
+    }
+  return NULL;
+}
+
+/* Print TOKEN to STREAM using source-like spellings where possible.  */
+
+static void
+dump_profile_token (FILE *stream, const cp_token *token)
+{
+  tree val = token->tree_check_p ? token->u.tree_check_value->value
+				 : token->u.value;
+
+  switch (token->type)
+    {
+    case CPP_KEYWORD:
+      if (!val || !identifier_p (val))
+	{
+	  if (token->keyword != RID_MAX && ridpointers[token->keyword])
+	    fputs (IDENTIFIER_POINTER (ridpointers[token->keyword]), stream);
+	  else
+	    fputs (cpp_type2name (token->type, token->flags), stream);
+	  break;
+	}
+      /* FALLTHRU */
+    case CPP_NAME:
+      fputs (IDENTIFIER_POINTER (val), stream);
+      break;
+
+    case CPP_NUMBER:
+    case CPP_STRING:
+    case CPP_STRING16:
+    case CPP_STRING32:
+    case CPP_WSTRING:
+    case CPP_UTF8STRING:
+    case CPP_CHAR:
+    case CPP_WCHAR:
+    case CPP_CHAR16:
+    case CPP_CHAR32:
+    case CPP_UTF8CHAR:
+      /* A literal is spelled as written, so that its identity is its
+	 token, not its value; otherwise fall back to the value.  The
+	 strings here are unjoined, so their value already holds the
+	 spelling, quotes and prefix included.  */
+      if (char *spelling = profile_token_source_spelling (token))
+	{
+	  fputs (spelling, stream);
+	  free (spelling);
+	}
+      else if (TREE_CODE (val) == STRING_CST)
+	fputs (TREE_STRING_POINTER (val), stream);
+      else
+	print_generic_expr (stream, val);
+      break;
+
+    default:
+      {
+	/* Prefer "(" / ":" spellings over "CPP_OPEN_PAREN".  */
+	static const char *const spellings[] = {
+#define OP(e, s) s,
+#define TK(e, s) NULL,
+	  TTYPE_TABLE
+#undef OP
+#undef TK
+	};
+	if (token->type < ARRAY_SIZE (spellings) && spellings[token->type])
+	  fputs (spellings[token->type], stream);
+	else
+	  fputs (cpp_type2name (token->type, token->flags), stream);
+      }
+      break;
+    }
+}
+
+/* True if TOKEN is spelled as a word or literal that usually wants a
+   separating space after ':' or ',' or another word.  */
+
+static bool
+profile_token_word_p (const cp_token *token)
+{
+  switch (token->type)
+    {
+    case CPP_NAME:
+    case CPP_KEYWORD:
+    case CPP_NUMBER:
+    case CPP_STRING:
+    case CPP_STRING16:
+    case CPP_STRING32:
+    case CPP_WSTRING:
+    case CPP_UTF8STRING:
+    case CPP_CHAR:
+    case CPP_WCHAR:
+    case CPP_CHAR16:
+    case CPP_CHAR32:
+    case CPP_UTF8CHAR:
+      return true;
+    default:
+      return false;
+    }
+}
+
+/* Dump the argument clause of a profile designator to STREAM.  ARGS is a
+   DEFERRED_PARSE of the balanced token sequence, a STRING_CST spelling from
+   a CMI, or NULL_TREE.  */
+
+static void
+dump_profile_args (FILE *stream, tree args)
+{
+  if (!args)
+    return;
+
+  if (TREE_CODE (args) == STRING_CST)
+    {
+      fputs (TREE_STRING_POINTER (args), stream);
+      return;
+    }
+
+  gcc_checking_assert (TREE_CODE (args) == DEFERRED_PARSE);
+  cp_token_cache *cache = DEFPARSE_TOKENS (args);
+  bool space_before_word = false;
+  for (cp_token *t = cache->first; t < cache->last; ++t)
+    {
+      if (space_before_word && profile_token_word_p (t))
+	fputc (' ', stream);
+      dump_profile_token (stream, t);
+      space_before_word
+	= (profile_token_word_p (t)
+	   || t->type == CPP_COLON
+	   || t->type == CPP_COMMA);
+    }
+}
+
+/* Return a malloc'd spelling of ARGS.  Caller must free.  ARGS must still
+   refer to live token data when it is a DEFERRED_PARSE.  */
+
+char *
+profile_enforcement_args_spelling (tree args)
+{
+  if (!args)
+    return xstrdup ("");
+  if (TREE_CODE (args) == STRING_CST)
+    return xstrdup (TREE_STRING_POINTER (args));
+
+  char *buf = NULL;
+  size_t size = 0;
+  FILE *stream = open_memstream (&buf, &size);
+  gcc_assert (stream);
+  dump_profile_args (stream, args);
+  fclose (stream);
+  return buf;
+}
+
+/* Replace any DEFERRED_PARSE argument clauses in ENFORCEMENTS with
+   STRING_CST spellings.  Parser token caches are not guaranteed to live
+   until CMI write-out, so recorded/exported profiles must not retain them.
+   Called when recording a TU enforcement and again when installing a
+   module's exported set (no-op if already STRING_CST / NULL).  */
+
+tree
+materialize_profile_enforcement_args (tree enforcements)
+{
+  for (tree e = enforcements; e; e = TREE_CHAIN (e))
+    {
+      tree args = TREE_VALUE (e);
+      if (!args || TREE_CODE (args) != DEFERRED_PARSE)
+	continue;
+
+      char *sp = profile_enforcement_args_spelling (args);
+      TREE_VALUE (e) = *sp ? build_string (strlen (sp), sp) : NULL_TREE;
+      free (sp);
+    }
+  return enforcements;
+}
+
+/* True if A and B name the same argument clause for require/enforce matching.
+   Token-sequence equality is used when both are live DEFERRED_PARSE nodes;
+   otherwise spellings are compared (e.g. against a CMI-loaded STRING_CST).  */
+
+bool
+profile_designator_args_match (tree a, tree b)
+{
+  if (a == b)
+    return true;
+  if (a && b
+      && TREE_CODE (a) == DEFERRED_PARSE
+      && TREE_CODE (b) == DEFERRED_PARSE)
+    return profile_enforcement_args_equal (a, b);
+
+  char *sa = profile_enforcement_args_spelling (a);
+  char *sb = profile_enforcement_args_spelling (b);
+  bool eq = !strcmp (sa, sb);
+  free (sa);
+  free (sb);
+  return eq;
+}
+
+#include "gt-cp-profiles.h"
