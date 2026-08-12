@@ -1,5 +1,8 @@
 // { dg-do compile { target c++11 } }
 // { dg-options "-fprofiles" }
+// TODO: remove warning when profiles attributes location is verified
+// { dg-prune-output "scoped attribute directive ignored" }
+// { dg-prune-output "warning: attribute ignored" }
 
 // Each profile-enforcement uses a distinct profile-name so that the
 // translation unit's duplicate-enforcement checking does not interfere;

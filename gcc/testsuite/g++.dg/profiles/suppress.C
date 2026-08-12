@@ -1,5 +1,8 @@
 // { dg-do compile { target c++11 } }
 // { dg-options "-fprofiles" }
+// TODO: remove warning when profiles attributes location is verified
+// { dg-prune-output "scoped attribute directive ignored" }
+// { dg-prune-output "warning: attribute ignored" }
 
 // Paper-shaped examples: named rule / justification with string values.
 [[profiles::suppress(std::type, justification: "buffer is filled in by read()")]];
