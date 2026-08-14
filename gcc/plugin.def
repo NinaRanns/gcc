@@ -59,6 +59,9 @@ DEFEVENT (PLUGIN_REGISTER_GGC_ROOTS)
 /* Called during attribute registration.  */
 DEFEVENT (PLUGIN_ATTRIBUTES)
 
+/* Called during C++ profile registration.  */
+DEFEVENT (PLUGIN_PROFILES)
+
 /* Called before processing a translation unit.  */
 DEFEVENT (PLUGIN_START_UNIT)
 

@@ -1,0 +1,206 @@
+# Copyright (C) 2026 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with GCC; see the file COPYING3.  If not see
+# <http://www.gnu.org/licenses/>.
+
+# Test the C++ profiles framework (P3589).
+# Module interface export of profiles::enforce is checked via
+# -fdump-lang-module (exported-profiles recorded for the CMI).
+# Import-side profiles::require is checked against that exported set.
+# Plugin registration of concrete profile-names is exercised via
+# PLUGIN_PROFILES / register_profile.
+
+load_lib g++-dg.exp
+load_lib target-supports.exp
+
+global DEFAULT_CXXFLAGS
+if ![info exists DEFAULT_CXXFLAGS] then {
+    set DEFAULT_CXXFLAGS " -pedantic-errors -Wno-long-long"
+}
+
+if $tracelevel then {
+    strace $tracelevel
+}
+
+if ![gcc_parallel_test_run_p profiles] {
+    return
+}
+gcc_parallel_test_enable 0
+
+# ---- helpers for module CMI checks (subset of modules.exp) ----
+
+global module_cmis
+set DEFAULT_REPO "gcm.cache"
+
+proc dg-module-cmi { args } {
+    if { [llength $args] > 3 } {
+	error "[lindex $args 0]: too many arguments"
+	return
+    }
+    set spec [lindex $args 1]
+    set when {}
+    if { [llength $args] > 2 } {
+	set when [lindex $args 2]
+    }
+
+    if { [string index $spec 0] == "!" } {
+	set name [string range $spec 1 end]
+	set not 1
+    } else {
+	set name $spec
+	set not 0
+    }
+
+    if { [string index $name 0] == "=" } {
+	set cmi [string range $name 1 end]
+    } else {
+	set cmi "[regsub : $name -].gcm"
+	global DEFAULT_REPO
+	set cmi "$DEFAULT_REPO/$cmi"
+    }
+
+    file_on_host delete "$cmi"
+
+    global module_cmis
+    lappend module_cmis [list $spec $when $not $cmi]
+}
+
+proc profiles-module-cmi-p { src ifs std } {
+    set res {}
+    foreach if_arg $ifs {
+	set spec [lindex $if_arg 0]
+	set when [lindex $if_arg 1]
+	if { $when != "" } {
+	    switch [dg-process-target $when] {
+		"S" { }
+		"N" { continue }
+		"F" { setup_xfail "*-*-*" }
+		"P" { }
+	    }
+	}
+	set not [lindex $if_arg 2]
+	set cmi [lindex $if_arg 3]
+	global srcdir
+	set relcmi [string map [list $srcdir "/\$srcdir"] $cmi]
+	if { $not != [file_on_host exists $cmi] } {
+	    pass "$src $std module-cmi $spec ($relcmi)"
+	} else {
+	    fail "$src $std module-cmi $spec ($relcmi)"
+	    set not [expr ! $not]
+	}
+	if { ! $not } {
+	    lappend res $cmi
+	}
+    }
+    return $res
+}
+
+proc profiles-cleanup-module-files { files } {
+    foreach f $files {
+	file_on_host delete $f
+    }
+}
+
+# ---- ordinary profile tests ----
+
+set ordinary [lsort [glob -nocomplain $srcdir/$subdir/*.C]]
+set ordinary [prune $ordinary "$srcdir/$subdir/enforce-module*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-module*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/profile_plugin*.C"]
+g++-dg-runtest $ordinary "" $DEFAULT_CXXFLAGS
+
+# ---- ungrouped module interface / CMI export tests ----
+
+foreach test [lsort [glob -nocomplain $srcdir/$subdir/enforce-module-\[0-9\].C]] {
+    if ![runtest_file_p $runtests $test] {
+	continue
+    }
+    set option_list [g++-std-flags $test]
+    foreach std $option_list {
+	global module_cmis DEFAULT_REPO
+	file_on_host delete $DEFAULT_REPO
+	set module_cmis {}
+	verbose "Testing [file tail $test] $std" 1
+	dg-test -keep-output $test "$std" $DEFAULT_CXXFLAGS
+	set testcase [string range $test [string length "$srcdir/"] end]
+	set mod_files [profiles-module-cmi-p $testcase $module_cmis $std]
+	profiles-cleanup-module-files $mod_files
+	file_on_host delete "[file rootname [file tail $test]].o"
+	file_on_host delete "[file rootname [file tail $test]].s"
+    }
+}
+
+# ---- grouped module tests: *_a.C + followers ----
+
+proc profiles-run-grouped-module-tests { pattern } {
+    global srcdir subdir runtests DEFAULT_CXXFLAGS DEFAULT_REPO
+
+    foreach src [lsort [glob -nocomplain $srcdir/$subdir/$pattern]] {
+	if ![runtest_file_p $runtests $src] {
+	    continue
+	}
+	set tests [lsort [find [file dirname $src] \
+	    [regsub {_a.C$} [file tail $src] {_[a-z].C}]]]
+
+	set option_list [g++-std-flags $src]
+	foreach std $option_list {
+	    global module_cmis
+	    file_on_host delete $DEFAULT_REPO
+	    set mod_files {}
+	    foreach test $tests {
+		set module_cmis {}
+		verbose "Testing [file tail $test] $std" 1
+		dg-test -keep-output $test "$std" $DEFAULT_CXXFLAGS
+		set testcase [string range $test [string length "$srcdir/"] end]
+		lappend mod_files \
+		    [profiles-module-cmi-p $testcase $module_cmis $std]
+		file_on_host delete "[file rootname [file tail $test]].o"
+		file_on_host delete "[file rootname [file tail $test]].s"
+	    }
+	    profiles-cleanup-module-files $mod_files
+	    catch { file delete -force $DEFAULT_REPO }
+	}
+    }
+}
+
+profiles-run-grouped-module-tests "enforce-module-*_a.C"
+profiles-run-grouped-module-tests "require-module-*_a.C"
+
+# ---- plugin profile registration ----
+
+global ENABLE_PLUGIN
+if { [info exists ENABLE_PLUGIN] } {
+    load_lib plugin-support.exp
+    set default_flags $DEFAULT_CXXFLAGS
+    set PLUGIN_DEFAULT_REPO "gcm.cache"
+
+    set plugin_tests [list \
+	[list $srcdir/$subdir/profile_plugin.cc \
+	      $srcdir/$subdir/profile_plugin-test-1.C]]
+
+    foreach plugin_test $plugin_tests {
+	set plugin_src [lindex $plugin_test 0]
+	if ![runtest_file_p $runtests $plugin_src] then {
+	    continue
+	}
+	set plugin_input_tests [lrange $plugin_test 1 end]
+	plugin-test-execute $plugin_src $plugin_input_tests
+    }
+
+    foreach file [find $PLUGIN_DEFAULT_REPO *.gcm] {
+	file_on_host delete $file
+    }
+}
+
+gcc_parallel_test_enable 1
