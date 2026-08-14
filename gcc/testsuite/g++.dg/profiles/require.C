@@ -18,7 +18,7 @@
 // Paper-shaped: profile-name with named profile-arguments.
 [[profiles::require(acme::hardened(fortify: 3, sanitize: thread))]];
 
-// Paper-shaped: several profile-designators in one list.
+// Several profile-designators in one list (framework extension).
 [[profiles::require(std::lib::hardened, acme::type)]];
 
 // Exact repetition of the same designator token sequence.

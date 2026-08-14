@@ -34372,16 +34372,12 @@ cp_parser_profiles_designator (cp_parser *parser,
 }
 
 /* Parse a profile-designator-list
-guessing the production to be
   profile-designator-list:
      profile-designator
      profile-designator-list , profile-designator
 
-   For profiles::enforce and profiles::require, returns a TREE_LIST of
-   designators (each node's TREE_PURPOSE is the profile-name and TREE_VALUE
-   the argument clause).  Fresh list nodes are built so chaining does not
-   mutate the TU-local enforcement trees.  For other kinds, the designators
-   are parsed and discarded and NULL_TREE is returned.  */
+   Used for profiles::enforce and profiles::require.  Returns a TREE_LIST of
+   designators (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause).  */
 
 static tree
 cp_parser_profiles_designator_seq (cp_parser *parser,
@@ -34415,7 +34411,8 @@ cp_parser_profiles_designator_seq (cp_parser *parser,
 
   [[profiles::enforce(profile-designator-list)]];
   [[profiles::require(profile-designator-list)]];
-  [[profiles::suppress(profile-name, profile-argument-list)]]
+  [[profiles::suppress(profile-name)]];
+  [[profiles::suppress(profile-name, profile-argument-list)]];
 
   TODO : exempt ?
   [[profiles::exempt(acme::type, angle_header: “unistd.h”)]];
