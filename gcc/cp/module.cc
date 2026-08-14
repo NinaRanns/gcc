@@ -233,6 +233,7 @@ Classes used:
 #include "intl.h"
 #include "langhooks.h"
 #include "contracts.h"
+#include "profiles.h"
 /* This TU doesn't need or want to see the networking.  */
 #define CODY_NETWORKING 0
 #include "mapper-client.h"
@@ -3802,6 +3803,13 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   unsigned extensions : SE_BITS;
   /* 14 bits used, 2 bits remain  */
 
+  /* Profile-enforcements published by this module's primary interface
+     export module-declaration.  A TREE_LIST of enforcements: each node's
+     TREE_PURPOSE is the profile-name and TREE_VALUE is the deferred
+     argument clause (DEFERRED_PARSE), a STRING_CST spelling after CMI load,
+     or NULL_TREE.  */
+  tree exported_profiles;
+
  public:
   module_state (tree name, module_state *, bool);
   ~module_state ();
@@ -3810,6 +3818,7 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   void release ()
   {
     imports = exports = NULL;
+    exported_profiles = NULL_TREE;
     slurped ();
   }
   void slurped ()
@@ -3918,6 +3927,9 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
  private:
   void write_partitions (elf_out *to, unsigned, unsigned *crc_ptr);
   bool read_partitions (unsigned);
+
+  void write_exported_profiles (elf_out *to, unsigned *crc_ptr);
+  bool read_exported_profiles ();
 
  private:
   void write_config (elf_out *to, struct module_state_config &, unsigned crc);
@@ -4034,7 +4046,8 @@ module_state::module_state (tree name, module_state *parent, bool partition)
     entity_lwm (~0u >> 1), entity_num (0),
     ordinary_locs (0, 0), macro_locs (0, 0),
     loc (UNKNOWN_LOCATION),
-    crc (0), mod (MODULE_UNKNOWN), remap (0), subst (0)
+    crc (0), mod (MODULE_UNKNOWN), remap (0), subst (0),
+    exported_profiles (NULL_TREE)
 {
   loadedness = ML_NONE;
 
@@ -4426,6 +4439,20 @@ public:
     if (mask && !(mask & flags))
       return false;
     return true;
+  }
+  /* Dump stream, or NULL if dumping is not active.  */
+  FILE *stream () const
+  {
+    return dumps ? dumps->stream : NULL;
+  }
+  /* Finish a line started with dump ("+") and external stream writes.  */
+  void finish_line ()
+  {
+    if (dumps && dumps->stream)
+      {
+	fputc ('\n', dumps->stream);
+	dumps->bol = true;
+      }
   }
   /* Dump some information.  */
   bool operator () (const char *, ...);
@@ -17231,6 +17258,81 @@ module_state::read_partitions (unsigned count)
   return true;
 }
 
+/* Write exported profile-enforcements to MOD_SNAME_PFX.prf.
+   Each entry is profile-name plus a spelling of the argument clause
+   (empty string when the designator had no arguments).  */
+
+void
+module_state::write_exported_profiles (elf_out *to, unsigned *crc_ptr)
+{
+  if (!exported_profiles)
+    return;
+
+  unsigned count = list_length (exported_profiles);
+  dump () && dump ("Writing %u exported profile-enforcement%s",
+		   count, count == 1 ? "" : "s");
+  dump.indent ();
+
+  bytes_out sec (to);
+  sec.begin ();
+  sec.u32 (count);
+
+  for (tree e = exported_profiles; e; e = TREE_CHAIN (e))
+    {
+      const char *name = IDENTIFIER_POINTER (TREE_PURPOSE (e));
+      char *args = profile_enforcement_args_spelling (TREE_VALUE (e));
+      dump () && dump ("Writing enforce %s%s", name, args);
+      sec.str (name);
+      sec.str (args);
+      free (args);
+    }
+
+  sec.end (to, to->name (MOD_SNAME_PFX ".prf"), crc_ptr);
+  dump.outdent ();
+}
+
+/* Read exported profile-enforcements from MOD_SNAME_PFX.prf if present.
+   Older CMIs without the section are treated as exporting no profiles.  */
+
+bool
+module_state::read_exported_profiles ()
+{
+  unsigned snum = from ()->find (MOD_SNAME_PFX ".prf");
+  if (!snum)
+    return true;
+
+  bytes_in sec;
+  if (!sec.begin (loc, from (), snum, MOD_SNAME_PFX ".prf"))
+    return false;
+
+  unsigned count = sec.u32 ();
+  dump () && dump ("Reading %u exported profile-enforcement%s",
+		   count, count == 1 ? "" : "s");
+  dump.indent ();
+
+  tree list = NULL_TREE;
+  while (count--)
+    {
+      const char *name = sec.str (NULL);
+      const char *args = sec.str (NULL);
+      if (sec.get_overrun ())
+	break;
+
+      dump () && dump ("Reading enforce %s%s", name, args);
+      tree aname = get_identifier (name);
+      tree aargs = (!args || !*args)
+	? NULL_TREE
+	: build_string (strlen (args), args);
+      list = chainon (list, build_tree_list (aname, aargs));
+    }
+
+  exported_profiles = list;
+  dump.outdent ();
+  if (!sec.end (from ()))
+    return false;
+  return true;
+}
+
 /* Data for config reading and writing.  */
 struct module_state_config {
   const char *dialect_str = get_dialect ();
@@ -21001,6 +21103,7 @@ ool_cmp (const void *a_, const void *b_)
      MOD_SNAME_PFX.imp      : import table
      MOD_SNAME_PFX.ent      : entity table
      MOD_SNAME_PFX.prt      : partitions table
+     MOD_SNAME_PFX.prf      : exported profile-enforcements
      MOD_SNAME_PFX.olm      : ordinary line maps
      MOD_SNAME_PFX.mlm      : macro line maps
      MOD_SNAME_PFX.def      : macro definitions
@@ -21260,6 +21363,9 @@ module_state::write_begin (elf_out *to, cpp_reader *reader,
   if (config.num_partitions)
     write_partitions (to, config.num_partitions, &crc);
 
+  /* Write exported profile-enforcements (optional section).  */
+  write_exported_profiles (to, &crc);
+
   /* Write the line maps.  */
   if (config.ordinary_locs)
     {
@@ -21403,6 +21509,10 @@ module_state::read_initial (cpp_reader *reader)
 
   /* Note whether there's an active initializer.  */
   active_init_p = !is_header () && bool (config.active_init);
+
+  /* Optional exported profile-enforcements.  */
+  if (ok && !read_exported_profiles ())
+    ok = false;
 
   gcc_assert (slurp->current == ~0u);
   return ok;
@@ -22797,11 +22907,12 @@ direct_import (module_state *import, cpp_reader *reader)
   timevar_stop (TV_MODULE_IMPORT);
 }
 
-/* Import module IMPORT.  */
+/* Import module IMPORT.  ATTRS may carry profiles::require designators that
+   must match IMPORT's exported profile-enforcements after the CMI is loaded.  */
 
 void
 import_module (module_state *import, location_t from_loc, bool exporting_p,
-	       tree, cpp_reader *reader)
+	       tree attrs, cpp_reader *reader)
 {
   /* A non-partition implementation unit has no name.  */
   if (!this_module ()->name && this_module ()->parent == import)
@@ -22839,14 +22950,21 @@ import_module (module_state *import, location_t from_loc, bool exporting_p,
   gcc_checking_assert (import->is_direct () && import->has_location ());
 
   direct_import (import, reader);
+
+  if (tree required = extract_profile_requirements (attrs))
+    check_profile_requirements (from_loc, import->get_flatname (),
+				required, import->exported_profiles);
 }
 
 /* Declare the name of the current module to be NAME.  EXPORTING_p is
-   true if this TU is the exporting module unit.  */
+   true if this TU is the exporting module unit.  EXPORTED_PROFILES, if
+   non-NULL, is a TREE_LIST of profile-enforcements from attributes on
+   this module-declaration; when this is a primary interface export
+   it becomes MODULE's exported_profiles.  */
 
 void
 declare_module (module_state *module, location_t from_loc, bool exporting_p,
-		tree, cpp_reader *reader)
+		tree exported_profiles, cpp_reader *reader)
 {
   gcc_assert (global_namespace == current_scope ());
 
@@ -22901,6 +23019,34 @@ declare_module (module_state *module, location_t from_loc, bool exporting_p,
       module->interface_p = true;
       current->parent = module; /* So mangler knows module identity. */
       direct_import (module, reader);
+    }
+
+  /* Profile-enforcements appearing on an export module-declaration of
+     the primary interface become part of this module's exported set.
+     Partition and non-exporting module-declarations do not contribute.  */
+  if (exporting_p && !module->is_partition () && exported_profiles)
+    {
+      /* Token caches backing DEFERRED_PARSE args will not survive until CMI
+	 write-out; freeze spellings now.  */
+      module->exported_profiles
+	= stabilize_profile_enforcements (exported_profiles);
+
+      unsigned n = dump.push (NULL);
+      if (dump ())
+	{
+	  unsigned count = list_length (exported_profiles);
+	  dump ("Module %M exports %u profile-enforcement%s:",
+		module, count, count == 1 ? "" : "s");
+	  dump.indent ();
+	  for (tree e = exported_profiles; e; e = TREE_CHAIN (e))
+	    {
+	      dump ("+");
+	      dump_profile_enforcement (dump.stream (), e);
+	      dump.finish_line ();
+	    }
+	  dump.outdent ();
+	}
+      dump.pop (n);
     }
 }
 

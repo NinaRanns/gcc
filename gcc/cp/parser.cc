@@ -17233,13 +17233,15 @@ cp_parser_module_declaration (cp_parser *parser, module_parse mp_state,
       if (mod && cp_lexer_peek_token (parser->lexer)->type == CPP_COLON)
 	mod = cp_parser_module_partition (parser, mod);
       tree attrs = cp_parser_attributes_opt (parser);
+      tree exported_profiles = extract_profile_enforcements (attrs);
 
       if (mod)
 	mp_state = MP_PURVIEW_IMPORTS;
       if (!mod || !cp_parser_require (parser, CPP_SEMICOLON, RT_SEMICOLON))
 	goto skip_eol;
 
-      declare_module (mod, token->location, exporting, attrs, parse_in);
+      declare_module (mod, token->location, exporting, exported_profiles,
+		      parse_in);
       cp_parser_require_pragma_eol (parser, token);
     }
 
@@ -34239,6 +34241,37 @@ cp_parser_profiles_name (cp_parser *parser)
   return get_identifier (profile_name);
 }
 
+/* Parse the optional argument clause of a profile-designator, retaining the
+   balanced token sequence in a DEFERRED_PARSE.  PARSER is positioned
+   immediately after the profile-name.  Returns the DEFERRED_PARSE, NULL_TREE
+   when there is no argument clause, or error_mark_node on parse failure.  */
+
+static tree
+cp_parser_profile_designator_args (cp_parser *parser)
+{
+  if (!cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
+    return NULL_TREE;
+
+  /* Remember the '(' so that, after validating the argument clause, we can
+     retain its whole balanced token sequence.  */
+  cp_token *first = parser->lexer->next_token;
+
+  cp_lexer_consume_token (parser->lexer);
+  tree arg_list = cp_parser_profiles_argument_list (parser);
+  if (arg_list == error_mark_node
+      || !cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+    return error_mark_node;
+
+  cp_token *last = parser->lexer->next_token;
+
+  /* Retain the argument clause (from '(' up to and including ')') in a
+     DEFERRED_PARSE for later matching / profile use.  */
+  tree args = make_node (DEFERRED_PARSE);
+  DEFPARSE_TOKENS (args) = cp_token_cache_new (first, last);
+  DEFPARSE_INSTANTIATIONS (args) = nullptr;
+  return args;
+}
+
 /* Parse the argument clause of a profile-enforcement designator and record
    the enforcement.
 
@@ -34260,37 +34293,36 @@ cp_parser_prof_enforce (cp_parser *parser, tree name, location_t loc)
 {
   gcc_assert (name != NULL_TREE);
 
-  tree args = NULL_TREE;
-
-  if (cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
-    {
-      /* Remember the '(' so that, after validating the argument clause, we can
-	 retain its whole balanced token sequence.  */
-      cp_token *first = parser->lexer->next_token;
-
-      cp_lexer_consume_token (parser->lexer);
-      tree arg_list = cp_parser_profiles_argument_list (parser);
-      if (arg_list == error_mark_node
-	  || !cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
-	return error_mark_node;
-
-      cp_token *last = parser->lexer->next_token;
-
-      /* Retain the argument clause (from '(' up to and including ')') in a
-	 DEFERRED_PARSE for the profile's own use.  */
-      args = make_node (DEFERRED_PARSE);
-      DEFPARSE_TOKENS (args) = cp_token_cache_new (first, last);
-      DEFPARSE_INSTANTIATIONS (args) = nullptr;
-    }
+  tree args = cp_parser_profile_designator_args (parser);
+  if (args == error_mark_node)
+    return error_mark_node;
 
   tree enforcement = build_tree_list (name, args);
 
   /* Record the enforcement.  A conflict with a previously seen enforcement of
      the same name is diagnosed by add_profile_enforcement, but the tokens are
-     still well-formed, so return the enforcement (rather than propagating
-     error_mark_node) to let attribute parsing finish cleanly.  */
-  add_profile_enforcement (enforcement, loc);
-  return enforcement;
+     still well-formed, so return NULL_TREE (rather than error_mark_node) to
+     let attribute parsing finish cleanly without publishing the conflicting
+     designator.  */
+  profile_enforcement *pe = add_profile_enforcement (enforcement, loc);
+  if (!pe)
+    return NULL_TREE;
+  return pe->enforcement;
+}
+
+/* Parse a profiles::require designator: same argument-clause retention as
+   enforce, but do not record a TU-local profile-enforcement.  */
+
+static tree
+cp_parser_prof_require (cp_parser *parser, tree name)
+{
+  gcc_assert (name != NULL_TREE);
+
+  tree args = cp_parser_profile_designator_args (parser);
+  if (args == error_mark_node)
+    return error_mark_node;
+
+  return build_tree_list (name, args);
 }
 
 /* Parse a profile-designator
@@ -34320,6 +34352,11 @@ cp_parser_profiles_designator (cp_parser *parser,
   if (kind == PAK_ENFORCE)
     return cp_parser_prof_enforce (parser, profile_name, loc);
 
+  /* A require designator retains its argument clause for later matching
+     against an imported module's exported enforcements.  */
+  if (kind == PAK_REQUIRE)
+    return cp_parser_prof_require (parser, profile_name);
+
   /* Otherwise parse and discard any optional profile-argument-list.  */
   if (cp_lexer_next_token_is (parser->lexer, CPP_OPEN_PAREN))
     {
@@ -34339,7 +34376,12 @@ guessing the production to be
   profile-designator-list:
      profile-designator
      profile-designator-list , profile-designator
-*/
+
+   For profiles::enforce and profiles::require, returns a TREE_LIST of
+   designators (each node's TREE_PURPOSE is the profile-name and TREE_VALUE
+   the argument clause).  Fresh list nodes are built so chaining does not
+   mutate the TU-local enforcement trees.  For other kinds, the designators
+   are parsed and discarded and NULL_TREE is returned.  */
 
 static tree
 cp_parser_profiles_designator_seq (cp_parser *parser,
@@ -34352,6 +34394,13 @@ cp_parser_profiles_designator_seq (cp_parser *parser,
       tree profile_des = cp_parser_profiles_designator (parser, kind);
       if (profile_des == error_mark_node)
 	return error_mark_node;
+
+      if ((kind == PAK_ENFORCE || kind == PAK_REQUIRE)
+	  && profile_des != NULL_TREE)
+	profile_list
+	  = chainon (profile_list,
+		     build_tree_list (TREE_PURPOSE (profile_des),
+				      TREE_VALUE (profile_des)));
 
       if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
 	cp_lexer_consume_token (parser->lexer);
@@ -34410,9 +34459,11 @@ cp_parser_profiles_attribute (cp_parser *parser)
   if (!cp_parser_require (parser, CPP_OPEN_PAREN, RT_OPEN_PAREN))
     return error_mark_node;
 
+  tree arguments = NULL_TREE;
   if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
     {
-      if (cp_parser_profiles_designator_seq (parser, kind) == error_mark_node)
+      arguments = cp_parser_profiles_designator_seq (parser, kind);
+      if (arguments == error_mark_node)
 	return error_mark_node;
     }
   else if (kind == PAK_SUPPRESS)
@@ -34434,12 +34485,13 @@ cp_parser_profiles_attribute (cp_parser *parser)
       return error_mark_node;
     }
 
-  /* Return a well-formed attribute named 'profiles::<kind>'.  The
-     attribute value is to be determined later; for now it is NULL_TREE.  */
+  /* Return a well-formed attribute named 'profiles::<kind>'.  For enforce
+     and require, TREE_VALUE is the TREE_LIST of designators.  */
   tree attr_ns = canonicalize_attr_name (get_identifier ("profiles"));
   tree attr_id = canonicalize_attr_name (profile_kind);
   profile_attr = build_tree_list (build_tree_list (attr_ns, attr_id),
-				  NULL_TREE);
+				  (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
+				  ? arguments : NULL_TREE);
 
   if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
     return error_mark_node;

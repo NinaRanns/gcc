@@ -8125,7 +8125,7 @@ extern void preprocessed_module (cpp_reader *reader);
 extern void import_module (module_state *, location_t, bool export_p,
 			   tree attr, cpp_reader *);
 extern void declare_module (module_state *, location_t, bool export_p,
-			    tree attr, cpp_reader *);
+			    tree exported_profiles, cpp_reader *);
 extern void init_modules (cpp_reader *);
 extern void fini_modules (cpp_reader *, void *cookie, bool);
 extern void maybe_check_all_macros (cpp_reader *);

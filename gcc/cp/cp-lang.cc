@@ -26,6 +26,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "langhooks.h"
 #include "langhooks-def.h"
 #include "cp-objcp-common.h"
+#include "profiles.h"
 
 enum c_language_kind c_language = clk_cxx;
 static const char * cxx_dwarf_name (tree t, int verbosity);
