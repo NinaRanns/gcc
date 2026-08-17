@@ -117,12 +117,17 @@ proc profiles-cleanup-module-files { files } {
 set ordinary [lsort [glob -nocomplain $srcdir/$subdir/*.C]]
 set ordinary [prune $ordinary "$srcdir/$subdir/enforce-module*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-module*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-place-2.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-place-*_*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/enforce-place-*_*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/profile_plugin*.C"]
 g++-dg-runtest $ordinary "" $DEFAULT_CXXFLAGS
 
 # ---- ungrouped module interface / CMI export tests ----
 
-foreach test [lsort [glob -nocomplain $srcdir/$subdir/enforce-module-\[0-9\].C]] {
+foreach test [lsort [concat \
+	[glob -nocomplain $srcdir/$subdir/enforce-module-\[0-9\].C] \
+	[glob -nocomplain $srcdir/$subdir/require-place-2.C]]] {
     if ![runtest_file_p $runtests $test] {
 	continue
     }
@@ -176,6 +181,8 @@ proc profiles-run-grouped-module-tests { pattern } {
 
 profiles-run-grouped-module-tests "enforce-module-*_a.C"
 profiles-run-grouped-module-tests "require-module-*_a.C"
+profiles-run-grouped-module-tests "require-place-*_a.C"
+profiles-run-grouped-module-tests "enforce-place-*_a.C"
 
 # ---- plugin profile registration ----
 

@@ -425,6 +425,14 @@ struct GTY(()) cp_parser {
      appear.  */
   bool omp_attrs_forbidden_p;
 
+  /* TRUE while parsing the attribute-specifier-seq of an import-declaration.
+     profiles::require is only meaningful in that context.  */
+  bool allow_profiles_require_p;
+
+  /* TRUE until the first import-declaration of the translation unit.
+     profiles::enforce must be parsed before any import.  */
+  bool allow_profiles_enforce_p;
+
   /* TRUE if an OpenMP array section is allowed.  */
   bool omp_array_section_p;
 

@@ -4780,6 +4780,9 @@ cp_parser_new (cp_lexer *lexer)
   /* Disallow OpenMP array sections in expressions.  */
   parser->omp_array_section_p = false;
 
+  /* profiles::enforce is allowed until the first import-declaration.  */
+  parser->allow_profiles_enforce_p = true;
+
   /* Not declaring an implicit function template.  */
   parser->auto_is_implicit_function_template_parm_p = false;
   parser->fully_implicit_function_template_p = false;
@@ -17262,6 +17265,10 @@ cp_parser_import_declaration (cp_parser *parser, module_parse mp_state,
   parser->lexer->in_pragma = true;
   cp_token *token = cp_lexer_consume_token (parser->lexer);
 
+  /* All profiles::enforce designators must have been parsed before any
+     import-declaration.  */
+  parser->allow_profiles_enforce_p = false;
+
   if (mp_state == MP_PURVIEW || mp_state == MP_PRIVATE)
     {
       auto_diagnostic_group d;
@@ -17304,7 +17311,13 @@ cp_parser_import_declaration (cp_parser *parser, module_parse mp_state,
 	}
       else
 	mod = cp_parser_module_name (parser);
-      tree attrs = cp_parser_attributes_opt (parser);
+      tree attrs;
+      {
+	/* profiles::require is only valid on import declarations.  */
+	auto allow_require
+	  = make_temp_override (parser->allow_profiles_require_p, true);
+	attrs = cp_parser_attributes_opt (parser);
+      }
 
       if (!mod || !cp_parser_require (parser, CPP_SEMICOLON, RT_SEMICOLON))
 	{
@@ -34482,6 +34495,23 @@ cp_parser_profiles_attribute (cp_parser *parser)
       return error_mark_node;
     }
 
+  if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
+    return error_mark_node;
+
+  if (kind == PAK_ENFORCE && !parser->allow_profiles_enforce_p)
+    {
+      error_at (token->location,
+		"%<profiles::enforce%> must precede any import declaration");
+      return error_mark_node;
+    }
+  else if (kind == PAK_REQUIRE && !parser->allow_profiles_require_p)
+    {
+      error_at (token->location,
+		"%<profiles::require%> may only appear on an import "
+		"declaration");
+      return error_mark_node;
+    }
+
   /* Return a well-formed attribute named 'profiles::<kind>'.  For enforce
      and require, TREE_VALUE is the TREE_LIST of designators.  */
   tree attr_ns = canonicalize_attr_name (get_identifier ("profiles"));
@@ -34489,9 +34519,6 @@ cp_parser_profiles_attribute (cp_parser *parser)
   profile_attr = build_tree_list (build_tree_list (attr_ns, attr_id),
 				  (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
 				  ? arguments : NULL_TREE);
-
-  if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
-    return error_mark_node;
 
   return profile_attr;
 }
