@@ -229,25 +229,53 @@ profiles_attr_kind_name (enum profiles_attr_kind kind)
     }
 }
 
-/* From ATTRS, extract designators of profiles::<kind> into a fresh
-   TREE_LIST (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause).  */
+/* Return true if ATTRS is error_mark_node, or if any attribute in the ATTRS
+   chain is not a profiles::enforce attribute.  An empty list returns false.  */
+
+bool
+has_non_profiles_enforce_attribute (tree attrs)
+{
+  if (attrs == error_mark_node)
+    return true;
+
+  for (tree a = attrs; a; a = TREE_CHAIN (a))
+    {
+      if (a == error_mark_node)
+	return true;
+      if (!(is_attribute_namespace_p ("profiles", a)
+	    && is_attribute_p ("enforce", get_attribute_name (a))))
+	return true;
+    }
+
+  return false;
+}
+
+/* From *ATTRS, extract designators of profiles::<kind> into a fresh
+   TREE_LIST (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause).
+   If REMOVE_P, also unlink matching attributes from *ATTRS.  */
 
 static tree
-extract_profile_designators (tree attrs, enum profiles_attr_kind kind)
+extract_profile_designators (tree *attrs, enum profiles_attr_kind kind,
+			     bool remove_p)
 {
   const char *attr_name = profiles_attr_kind_name (kind);
   tree result = NULL_TREE;
 
-  for (tree a = attrs; a; a = TREE_CHAIN (a))
+  for (tree *pa = attrs; *pa; )
     {
+      tree a = *pa;
       if (a == error_mark_node || a == void_list_node)
-	continue;
+	{
+	  pa = &TREE_CHAIN (*pa);
+	  continue;
+	}
       if (!is_attribute_namespace_p ("profiles", a)
 	  || !is_attribute_p (attr_name, get_attribute_name (a)))
-	continue;
+	{
+	  pa = &TREE_CHAIN (*pa);
+	  continue;
+	}
 
-      /* Build a fresh TREE_LIST rather than chainon'ing the attribute's own
-	 list, which would mutate TREE_CHAIN on those nodes.  */
       for (tree e = TREE_VALUE (a); e; e = TREE_CHAIN (e))
 	{
 	  if (e == error_mark_node)
@@ -256,21 +284,26 @@ extract_profile_designators (tree attrs, enum profiles_attr_kind kind)
 	  result = chainon (result,
 			    build_tree_list (TREE_PURPOSE (e), TREE_VALUE (e)));
 	}
+
+      if (remove_p)
+	*pa = TREE_CHAIN (*pa);
+      else
+	pa = &TREE_CHAIN (*pa);
     }
 
   return result;
 }
 
 tree
-extract_profile_enforcements (tree attrs)
+extract_profile_enforcements (tree *attrs, bool remove_p)
 {
-  return extract_profile_designators (attrs, PAK_ENFORCE);
+  return extract_profile_designators (attrs, PAK_ENFORCE, remove_p);
 }
 
 tree
-extract_profile_requirements (tree attrs)
+extract_profile_requirements (tree *attrs, bool remove_p)
 {
-  return extract_profile_designators (attrs, PAK_REQUIRE);
+  return extract_profile_designators (attrs, PAK_REQUIRE, remove_p);
 }
 
 /* Print TOKEN to STREAM using source-like spellings where possible.  */

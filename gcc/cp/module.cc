@@ -22951,7 +22951,7 @@ import_module (module_state *import, location_t from_loc, bool exporting_p,
 
   direct_import (import, reader);
 
-  if (tree required = extract_profile_requirements (attrs))
+  if (tree required = extract_profile_requirements (&attrs, false))
     check_profile_requirements (from_loc, import->get_flatname (),
 				required, import->exported_profiles);
 }

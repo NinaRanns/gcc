@@ -2679,6 +2679,8 @@ static module_parse cp_parser_module_declaration
   (cp_parser *parser, module_parse, bool exporting);
 static void cp_parser_import_declaration
   (cp_parser *parser, module_parse, bool exporting);
+static bool cp_parser_nth_tokens_start_profiles_enforce_p
+  (cp_parser *, size_t);
 
 /* Declarations [gram.dcl.dcl] */
 
@@ -4780,7 +4782,8 @@ cp_parser_new (cp_lexer *lexer)
   /* Disallow OpenMP array sections in expressions.  */
   parser->omp_array_section_p = false;
 
-  /* profiles::enforce is allowed until the first import-declaration.  */
+  /* profiles::enforce is allowed until the first import-declaration or
+     other non-enforcement declaration.  */
   parser->allow_profiles_enforce_p = true;
 
   /* Not declaring an implicit function template.  */
@@ -5581,12 +5584,37 @@ cp_parser_translation_unit (cp_parser* parser)
 	    }
 	}
 
+      /* If profiles::enforce is still allowed and the next tokens start
+	 with it, defer ending the import region / closing the enforce
+	 window until after the declaration is parsed.  */
+      bool peek_profiles_enforce
+	= (flag_profiles
+	   && parser->allow_profiles_enforce_p
+	   && cp_parser_nth_tokens_start_profiles_enforce_p (parser, 1));
+
       /* This relies on the ordering of module_parse values.  */
       if (mp_state == MP_PURVIEW_IMPORTS || mp_state == MP_PRIVATE_IMPORTS)
-	/* We're no longer in the import portion of a named module.  */
-	mp_state = module_parse (mp_state + 1);
+	{
+	  if (!peek_profiles_enforce)
+	    {
+	      /* We're no longer in the import portion of a named module.  */
+	      mp_state = module_parse (mp_state + 1);
+	      parser->allow_profiles_enforce_p = false;
+	    }
+	}
       else if (mp_state == MP_FIRST)
-	mp_state = MP_NOT_MODULE;
+	{
+	  mp_state = MP_NOT_MODULE;
+	  if (!peek_profiles_enforce)
+	    parser->allow_profiles_enforce_p = false;
+	}
+      else if ((mp_state == MP_NOT_MODULE
+		|| mp_state == MP_PURVIEW
+		|| mp_state == MP_PRIVATE)
+	       && !peek_profiles_enforce)
+	parser->allow_profiles_enforce_p = false;
+      /* MP_GLOBAL: GMF declarations must not close the window; a later
+	 named module-declaration may still carry profiles::enforce.  */
 
       if (token->type == CPP_CLOSE_BRACE)
 	{
@@ -17163,6 +17191,26 @@ cp_parser_module_partition (cp_parser *parser, module_state *parent = NULL)
   return cp_parser_module_name (parser, /*partition_p=*/true, parent);
 }
 
+/* True if token N begins [[profiles::enforce.  */
+
+static bool
+cp_parser_nth_tokens_start_profiles_enforce_p (cp_parser *parser, size_t n)
+{
+  if (!cp_lexer_nth_token_is (parser->lexer, n, CPP_OPEN_SQUARE)
+      || !cp_lexer_nth_token_is (parser->lexer, n + 1, CPP_OPEN_SQUARE))
+    return false;
+
+  cp_token *ns_tok = cp_lexer_peek_nth_token (parser->lexer, n + 2);
+  if (ns_tok->type != CPP_NAME
+      || !is_attribute_p ("profiles", ns_tok->u.value))
+    return false;
+  if (!cp_lexer_nth_token_is (parser->lexer, n + 3, CPP_SCOPE))
+    return false;
+  cp_token *kind_tok = cp_lexer_peek_nth_token (parser->lexer, n + 4);
+  return kind_tok->type == CPP_NAME
+	 && id_equal (kind_tok->u.value, "enforce");
+}
+
 /* Named module-declaration
      __module ; PRAGMA_EOL
      __module : private ; PRAGMA_EOL (unimplemented)
@@ -17236,7 +17284,7 @@ cp_parser_module_declaration (cp_parser *parser, module_parse mp_state,
       if (mod && cp_lexer_peek_token (parser->lexer)->type == CPP_COLON)
 	mod = cp_parser_module_partition (parser, mod);
       tree attrs = cp_parser_attributes_opt (parser);
-      tree exported_profiles = extract_profile_enforcements (attrs);
+      tree exported_profiles = extract_profile_enforcements (&attrs, false);
 
       if (mod)
 	mp_state = MP_PURVIEW_IMPORTS;
@@ -17587,6 +17635,11 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
 	      cp_lexer_destroy (lexer);
 	    }
 	}
+
+      if (flag_profiles && std_attrs != error_mark_node)
+	/* Strip profiles::enforce attributes (already recorded while
+	   parsing) so they do not trigger the ignored-attribute warning.  */
+	extract_profile_enforcements (&std_attrs, true);
 
       if (std_attrs != NULL_TREE && any_nonignored_attribute_p (std_attrs))
 	warning_at (make_location (attrs_loc, attrs_loc, parser->lexer),
@@ -34501,7 +34554,9 @@ cp_parser_profiles_attribute (cp_parser *parser)
   if (kind == PAK_ENFORCE && !parser->allow_profiles_enforce_p)
     {
       error_at (token->location,
-		"%<profiles::enforce%> must precede any import declaration");
+		  "%<profiles::enforce%> must precede any declaration "
+		  "that is not a %<profiles::enforce%> "
+		  "attribute-declaration");
       return error_mark_node;
     }
   else if (kind == PAK_REQUIRE && !parser->allow_profiles_require_p)

@@ -91,11 +91,8 @@
 // The same enforcement may be established on its own and then repeated as an
 // element of a larger designator-list, in any order.
 //
-// NOTE: the first and last lines below contain a stray ')' before ']]'.  The
-// enforcement is still recorded (before the error is detected), but the extra
-// ')' is itself a syntax error, so those two lines are diagnosed.
 // ---------------------------------------------------------------------------
-[[profiles::enforce(acme::type(fortify: 3, sanitize: thread)))]]; // { dg-error "expected" }
+[[profiles::enforce(acme::type(fortify: 3, sanitize: thread))]];
 [[profiles::enforce(lib::hardened)]];
 [[profiles::enforce(acme::type(fortify: 3, sanitize: thread), lib::hardened)]];
-[[profiles::enforce(lib::hardened, acme::type(fortify: 3, sanitize: thread)))]]; // { dg-error "expected" }
+[[profiles::enforce(lib::hardened, acme::type(fortify: 3, sanitize: thread))]];

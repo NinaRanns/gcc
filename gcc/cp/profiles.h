@@ -90,13 +90,19 @@ extern profile_enforcement *profile_enforcement_exists (tree name);
 
 /* From ATTRS, extract the designators of any profiles::enforce attributes
    into a single TREE_LIST of enforcements (TREE_PURPOSE = profile-name,
-   TREE_VALUE = argument clause).  */
-extern tree extract_profile_enforcements (tree attrs);
+   TREE_VALUE = argument clause).  If REMOVE_P, also unlink those attributes
+   from *ATTRS.  */
+extern tree extract_profile_enforcements (tree *attrs, bool remove_p);
+
+/* Return true if ATTRS is error_mark_node, or if any attribute in the ATTRS
+   chain is not a profiles::enforce attribute.  An empty list returns false.  */
+extern bool has_non_profiles_enforce_attribute (tree attrs);
 
 /* From ATTRS, extract the designators of any profiles::require attributes
    into a single TREE_LIST of requirements (TREE_PURPOSE = profile-name,
-   TREE_VALUE = argument clause).  */
-extern tree extract_profile_requirements (tree attrs);
+   TREE_VALUE = argument clause).  If REMOVE_P, also unlink those attributes
+   from *ATTRS.  */
+extern tree extract_profile_requirements (tree *attrs, bool remove_p);
 
 /* Return a malloc'd spelling of ARGS (a DEFERRED_PARSE argument clause,
    a STRING_CST of a previously serialized spelling, or NULL_TREE).

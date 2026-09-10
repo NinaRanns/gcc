@@ -429,8 +429,11 @@ struct GTY(()) cp_parser {
      profiles::require is only meaningful in that context.  */
   bool allow_profiles_require_p;
 
-  /* TRUE until the first import-declaration of the translation unit.
-     profiles::enforce must be parsed before any import.  */
+  /* TRUE while profiles::enforce may still appear as an attribute-declaration
+     (or on the module-declaration).  Cleared at the first import-declaration
+     and at the first declaration that does not begin with profiles::enforce;
+     those are the same declarations that end the contiguous import region of
+     a named module.  */
   bool allow_profiles_enforce_p;
 
   /* TRUE if an OpenMP array section is allowed.  */
