@@ -126,6 +126,25 @@
 // Positional then named arguments inside a designator.
 [[profiles::enforce(a25("x", rule: "y"))]];
 
+// Whole '(std::x)' is one balanced-token named value.
+[[profiles::enforce(a26(rule: (std::x)))]];
+
+// Nested '[[1]]' balances before the designator ')'.
+[[profiles::enforce(a27(ids: [[1]]))]];
+
+// Commas inside a string; the string is one token.
+[[profiles::enforce(a28(j: "a, b, and c"))]];
+
+// ']]' inside a string does not end the attribute.
+[[profiles::enforce(a29(j: "]]"))]];
+
+// ']]' inside a raw string does not end the attribute either.
+[[profiles::enforce(a30(j: R"(]])"))]];
+
+// A raw string is one token, so its inner '(' ')' are not
+// balanced-token delimiters.
+[[profiles::enforce(a31(rule: R"(a(b)c)"))]];
+
 // Empty profile-designator-list.
 [[profiles::enforce()]]; // { dg-error "" }
 
@@ -200,22 +219,3 @@
 
 // Stray tokens after a complete designator before the attribute ')'.
 [[profiles::enforce(e23::type +)]]; // { dg-error "" }
-
-// Valid again: whole '(std::x)' is one balanced-token named value.
-[[profiles::enforce(a26(rule: (std::x)))]];
-
-// Valid again: nested '[[1]]' balances before the designator ')'.
-[[profiles::enforce(a27(ids: [[1]]))]];
-
-// Valid again: commas inside a string; the string is one token.
-[[profiles::enforce(a28(j: "a, b, and c"))]];
-
-// Valid again: ']]' inside a string does not end the attribute.
-[[profiles::enforce(a29(j: "]]"))]];
-
-// Valid again: ']]' inside a raw string does not end the attribute either.
-[[profiles::enforce(a30(j: R"(]])"))]];
-
-// Valid again: a raw string is one token, so its inner '(' ')' are not
-// balanced-token delimiters.
-[[profiles::enforce(a31(rule: R"(a(b)c)"))]];
