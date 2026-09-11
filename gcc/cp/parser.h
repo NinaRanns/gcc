@@ -430,6 +430,17 @@ struct GTY(()) cp_parser {
      checks this to be given only once.  */
   location_t profiles_diagnosed_loc;
 
+  /* TRUE while parsing the attribute-specifier-seq of an import-declaration.
+     profiles::require is only meaningful in that context.  */
+  bool allow_profiles_require_p;
+
+  /* TRUE while profiles::enforce may still appear as an attribute-declaration
+     (or on the module-declaration).  Cleared at the first import-declaration
+     and at the first declaration other than an attribute-declaration or an
+     empty-declaration; those are the same declarations that end the
+     contiguous import region of a named module.  */
+  bool allow_profiles_enforce_p;
+
   /* TRUE if an OpenMP array section is allowed.  */
   bool omp_array_section_p;
 

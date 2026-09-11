@@ -2686,6 +2686,10 @@ static module_parse cp_parser_module_declaration
   (cp_parser *parser, module_parse, bool exporting);
 static void cp_parser_import_declaration
   (cp_parser *parser, module_parse, bool exporting);
+static bool cp_parser_peek_attribute_declaration_p
+  (cp_parser *, size_t);
+static bool cp_parser_peek_profiles_attribute_declaration_p
+  (cp_parser *, size_t);
 
 /* Declarations [gram.dcl.dcl] */
 
@@ -4869,6 +4873,9 @@ cp_parser_new (cp_lexer *lexer)
   /* Disallow OpenMP array sections in expressions.  */
   parser->omp_array_section_p = false;
 
+  /* Allow profiles::enforce.  */
+  parser->allow_profiles_enforce_p = true;
+
   /* Not declaring an implicit function template.  */
   parser->auto_is_implicit_function_template_parm_p = false;
   parser->fully_implicit_function_template_p = false;
@@ -5640,8 +5647,15 @@ cp_parser_translation_unit (cp_parser* parser)
 	    }
 	  if (next->keyword == RID__MODULE)
 	    {
+	      /* A module-declaration may carry profiles::enforce.  It is not
+		 a declaration, so afterwards the freestanding window is as it
+		 was: open unless a declaration (in the global module fragment)
+		 preceded it ([decl.profile.enforce]/1).  */
+	      bool enforce_p = parser->allow_profiles_enforce_p;
+	      parser->allow_profiles_enforce_p = true;
 	      mp_state
 		= cp_parser_module_declaration (parser, mp_state, exporting);
+	      parser->allow_profiles_enforce_p = enforce_p;
 	      continue;
 	    }
 	  else if (next->keyword == RID__IMPORT)
@@ -5649,6 +5663,18 @@ cp_parser_translation_unit (cp_parser* parser)
 	      if (mp_state == MP_FIRST)
 		mp_state = MP_NOT_MODULE;
 	      cp_parser_import_declaration (parser, mp_state, exporting);
+	      continue;
+	    }
+	  else if (flag_profiles
+		   && mp_state == MP_GLOBAL
+		   && cp_parser_peek_profiles_attribute_declaration_p (parser,
+								       1))
+	    {
+	      /* An attribute-declaration in the GMF consisting only of
+		 profiles attributes: skip the main-source pedwarn, and do
+		 not re-arm the enforce window (a prior non-empty GMF decl
+		 has closed it).  Anything else gets the pedwarn below.  */
+	      cp_parser_declaration (parser, NULL_TREE);
 	      continue;
 	    }
 	  else
@@ -5672,7 +5698,10 @@ cp_parser_translation_unit (cp_parser* parser)
 	/* We're no longer in the import portion of a named module.  */
 	mp_state = module_parse (mp_state + 1);
       else if (mp_state == MP_FIRST)
-	mp_state = MP_NOT_MODULE;
+	{
+	  parser->allow_profiles_enforce_p = true;
+	  mp_state = MP_NOT_MODULE;
+	}
 
       if (token->type == CPP_CLOSE_BRACE)
 	{
@@ -5683,7 +5712,9 @@ cp_parser_translation_unit (cp_parser* parser)
 	    cp_lexer_consume_token (parser->lexer);
 	}
       else
-	cp_parser_toplevel_declaration (parser);
+	{
+	  cp_parser_toplevel_declaration (parser);
+	}
     }
 
   /* Register any functions found in "begin declare variant" blocks, whose
@@ -17437,6 +17468,10 @@ cp_parser_import_declaration (cp_parser *parser, module_parse mp_state,
   parser->lexer->in_pragma = true;
   cp_token *token = cp_lexer_consume_token (parser->lexer);
 
+  /* All profiles::enforce designators must have been parsed before any
+     import-declaration.  */
+  parser->allow_profiles_enforce_p = false;
+
   if (mp_state == MP_PURVIEW || mp_state == MP_PRIVATE)
     {
       auto_diagnostic_group d;
@@ -17479,7 +17514,13 @@ cp_parser_import_declaration (cp_parser *parser, module_parse mp_state,
 	}
       else
 	mod = cp_parser_module_name (parser);
-      tree attrs = cp_parser_module_attributes_opt (parser);
+      tree attrs;
+      {
+	/* profiles::require is only valid on import declarations.  */
+	auto allow_require
+	  = make_temp_override (parser->allow_profiles_require_p, true);
+	attrs = cp_parser_module_attributes_opt (parser);
+      }
 
       if (!mod || !cp_parser_require (parser, CPP_SEMICOLON, RT_SEMICOLON))
 	{
@@ -17657,6 +17698,87 @@ cp_parser_declaration_seq_opt (cp_parser* parser)
     = saved_in_unbraced_export_declaration_p;
 }
 
+/* True if token N begins an attribute-declaration
+   (attribute-specifier-seq `;').  A lone `;' also matches: with no
+   attribute-specifier-seq, skip leaves N unchanged and the token is
+   checked for semicolon (an empty-declaration).  */
+
+static bool
+cp_parser_peek_attribute_declaration_p (cp_parser *parser,
+						    size_t n)
+{
+  return cp_lexer_nth_token_is (parser->lexer,
+				cp_parser_skip_std_attribute_spec_seq (parser,
+								       n),
+				CPP_SEMICOLON);
+}
+
+/* True if token N is the profiles attribute namespace, however spelled
+   (profiles or __profiles__).  */
+
+static bool
+cp_parser_nth_token_is_profiles_ns_p (cp_parser *parser, size_t n)
+{
+  cp_token *token = cp_lexer_peek_nth_token (parser->lexer, n);
+  return (token->type == CPP_NAME
+	  && is_attribute_p ("profiles", token->u.value));
+}
+
+/* True if token N begins an attribute-declaration whose
+   attribute-specifier-seq contains only profiles attributes: each
+   attribute is profiles::NAME, or NAME after a `using profiles:' prefix,
+   with an optional argument clause.  */
+
+static bool
+cp_parser_peek_profiles_attribute_declaration_p (cp_parser *parser,
+						 size_t n)
+{
+  bool any = false;
+  while (cp_lexer_nth_token_is (parser->lexer, n, CPP_OPEN_SQUARE)
+	 && cp_lexer_nth_token_is (parser->lexer, n + 1, CPP_OPEN_SQUARE))
+    {
+      n += 2;
+      bool using_profiles = false;
+      if (cp_lexer_nth_token_is_keyword (parser->lexer, n, RID_USING))
+	{
+	  if (!cp_parser_nth_token_is_profiles_ns_p (parser, n + 1)
+	      || !cp_lexer_nth_token_is (parser->lexer, n + 2, CPP_COLON))
+	    return false;
+	  using_profiles = true;
+	  n += 3;
+	}
+      while (true)
+	{
+	  if (!using_profiles)
+	    {
+	      if (!cp_parser_nth_token_is_profiles_ns_p (parser, n)
+		  || !cp_lexer_nth_token_is (parser->lexer, n + 1, CPP_SCOPE))
+		return false;
+	      n += 2;
+	    }
+	  if (!cp_lexer_nth_token_is (parser->lexer, n, CPP_NAME))
+	    return false;
+	  ++n;
+	  if (cp_lexer_nth_token_is (parser->lexer, n, CPP_OPEN_PAREN))
+	    {
+	      size_t n2 = cp_parser_skip_balanced_tokens (parser, n);
+	      if (n2 == n)
+		return false;
+	      n = n2;
+	    }
+	  any = true;
+	  if (!cp_lexer_nth_token_is (parser->lexer, n, CPP_COMMA))
+	    break;
+	  ++n;
+	}
+      if (!cp_lexer_nth_token_is (parser->lexer, n, CPP_CLOSE_SQUARE)
+	  || !cp_lexer_nth_token_is (parser->lexer, n + 1, CPP_CLOSE_SQUARE))
+	return false;
+      n += 2;
+    }
+  return any && cp_lexer_nth_token_is (parser->lexer, n, CPP_SEMICOLON);
+}
+
 /* Parse a declaration.  The distinction between name-declaration
    and special-declaration is only since C++20.
 
@@ -17724,10 +17846,7 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
       maybe_warn_extra_semi (semicolon_loc, extra_semi_kind::decl);
       return;
     }
-  else if (cp_lexer_nth_token_is (parser->lexer,
-				  cp_parser_skip_std_attribute_spec_seq (parser,
-									 1),
-				  CPP_SEMICOLON))
+  else if (cp_parser_peek_attribute_declaration_p (parser, 1))
     {
       location_t attrs_loc = token1->location;
       tree std_attrs = cp_parser_std_attribute_spec_seq (parser);
@@ -17750,6 +17869,11 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
 	    }
 	}
 
+      if (flag_profiles && std_attrs != error_mark_node)
+	/* Strip profiles::enforce attributes (already recorded while
+	   parsing) so they do not trigger the ignored-attribute warning.  */
+	extract_profile_enforcements (&std_attrs, true);
+
       if (std_attrs != NULL_TREE && any_nonignored_attribute_p (std_attrs))
 	warning_at (make_location (attrs_loc, attrs_loc, parser->lexer),
 		    OPT_Wattributes, "attribute ignored");
@@ -17758,6 +17882,9 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
       return;
     }
 
+  /* If we're here, it's neither an empty-declaration nor an
+     attribute-declaration.  */
+  parser->allow_profiles_enforce_p = false;
   /* Get the high-water mark for the DECLARATOR_OBSTACK.  */
   void *p = obstack_alloc (&declarator_obstack, 0);
 
@@ -33986,15 +34113,27 @@ cp_parser_profiles_attr_kind (tree attr_id)
 static tree
 cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
 {
+  location_t kind_loc = cp_lexer_peek_token (parser->lexer)->location;
+
   enum profiles_attr_kind kind = cp_parser_profiles_attr_kind (attr_id);
 
   if (!cp_parser_require (parser, CPP_OPEN_PAREN, RT_OPEN_PAREN))
     return error_mark_node;
 
+  /* Decide placement before parsing the designators: a misplaced attribute
+     is still parsed, so that its syntax is diagnosed, but as if of no kind,
+     so that nothing is recorded and no profile sees it.  The placement
+     error itself follows the argument clause.  */
+  bool misplaced
+    = ((kind == PAK_ENFORCE && !parser->allow_profiles_enforce_p)
+       || (kind == PAK_REQUIRE && !parser->allow_profiles_require_p));
+
   tree arguments = NULL_TREE;
   if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
     {
-      arguments = cp_parser_profiles_designator_seq (parser, kind);
+      arguments
+	= cp_parser_profiles_designator_seq (parser,
+					     misplaced ? PAK_INVALID : kind);
       if (arguments == error_mark_node)
 	return error_mark_node;
     }
@@ -34020,6 +34159,29 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
 
   if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
     return error_mark_node;
+
+  /* Diagnose a misplaced attribute only once (see profiles_diagnosed_loc).  */
+  if (misplaced && kind_loc == parser->profiles_diagnosed_loc)
+    return error_mark_node;
+  if (misplaced)
+    parser->profiles_diagnosed_loc = kind_loc;
+
+  if (kind == PAK_ENFORCE && !parser->allow_profiles_enforce_p)
+    {
+      error_at (kind_loc,
+		"%<profiles::enforce%> may only appear on a "
+		"module-declaration, or in an attribute-declaration "
+		"preceded only by attribute-declarations and "
+		"empty-declarations");
+      return error_mark_node;
+    }
+  else if (kind == PAK_REQUIRE && !parser->allow_profiles_require_p)
+    {
+      error_at (kind_loc,
+		"%<profiles::require%> may only appear on an import "
+		"declaration");
+      return error_mark_node;
+    }
 
   /* For enforce and require, TREE_VALUE is the TREE_LIST of designators.  */
   if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)

@@ -57,6 +57,18 @@ extern profile_enforcement *add_profile_enforcement (tree enforcement,
    current translation unit, return it; otherwise return NULL.  */
 extern profile_enforcement *profile_enforcement_exists (tree name);
 
+/* From ATTRS, extract the designators of any profiles::enforce attributes
+   into a single TREE_LIST of enforcements (TREE_PURPOSE = profile-name,
+   TREE_VALUE = argument clause).  If REMOVE_P, also unlink those attributes
+   from *ATTRS.  */
+extern tree extract_profile_enforcements (tree *attrs, bool remove_p);
+
+/* From ATTRS, extract the designators of any profiles::require attributes
+   into a single TREE_LIST of requirements (TREE_PURPOSE = profile-name,
+   TREE_VALUE = argument clause).  If REMOVE_P, also unlink those attributes
+   from *ATTRS.  */
+extern tree extract_profile_requirements (tree *attrs, bool remove_p);
+
 /* Return a malloc'd spelling of ARGS (a DEFERRED_PARSE argument clause,
    a STRING_CST of a previously serialized spelling, or NULL_TREE).
    Caller must free.  */
