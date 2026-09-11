@@ -215,6 +215,86 @@ profile_enforcement_exists (tree name)
   return NULL;
 }
 
+/* Attribute-name spelling for KIND.  Only enforce and require carry
+   designator lists today.  */
+
+static const char *
+profiles_attr_kind_name (enum profiles_attr_kind kind)
+{
+  switch (kind)
+    {
+    case PAK_ENFORCE:
+      return "enforce";
+    case PAK_REQUIRE:
+      return "require";
+    case PAK_SUPPRESS:
+      return "suppress";
+    default:
+      gcc_unreachable ();
+    }
+}
+
+/* From *ATTRS, extract designators of profiles::<kind> into a fresh
+   TREE_LIST (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause).
+   If REMOVE_P, also unlink matching attributes from *ATTRS.  */
+
+static tree
+extract_profile_designators (tree *attrs, enum profiles_attr_kind kind,
+			     bool remove_p)
+{
+  const char *attr_name = profiles_attr_kind_name (kind);
+  tree result = NULL_TREE;
+
+  for (tree *pa = attrs; *pa; )
+    {
+      tree a = *pa;
+      if (a == error_mark_node || a == void_list_node)
+	{
+	  pa = &TREE_CHAIN (*pa);
+	  continue;
+	}
+      if (!is_attribute_namespace_p ("profiles", a)
+	  || !is_attribute_p (attr_name, get_attribute_name (a)))
+	{
+	  pa = &TREE_CHAIN (*pa);
+	  continue;
+	}
+
+      for (tree e = TREE_VALUE (a); e; e = TREE_CHAIN (e))
+	{
+	  if (e == error_mark_node)
+	    continue;
+	  gcc_checking_assert (TREE_CODE (e) == TREE_LIST);
+	  /* A repeated enforcement has no effect ([decl.profile.enforce]/3):
+	     keep each profile once, as the TU record does.  Requirements are
+	     each checked, so keep them all.  */
+	  if (kind == PAK_ENFORCE && purpose_member (TREE_PURPOSE (e), result))
+	    continue;
+	  result = chainon (result,
+			    build_tree_list (TREE_PURPOSE (e), TREE_VALUE (e)));
+	}
+
+      if (remove_p)
+	*pa = TREE_CHAIN (*pa);
+      else
+	pa = &TREE_CHAIN (*pa);
+    }
+
+  return result;
+}
+
+tree
+extract_profile_enforcements (tree *attrs, bool remove_p)
+{
+  return extract_profile_designators (attrs, PAK_ENFORCE, remove_p);
+}
+
+tree
+extract_profile_requirements (tree *attrs, bool remove_p)
+{
+  return extract_profile_designators (attrs, PAK_REQUIRE, remove_p);
+}
+
 /* Print TOKEN to STREAM using source-like spellings where possible.  */
 
 static void
