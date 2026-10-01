@@ -15,6 +15,9 @@
 # <http://www.gnu.org/licenses/>.
 
 # Test the C++ profiles framework (P3589).
+# Module interface export of profiles::enforce is checked via
+# -fdump-lang-module (exported-profiles recorded for the CMI).
+# Import-side profiles::require is checked against that exported set.
 
 load_lib g++-dg.exp
 load_lib target-supports.exp
@@ -33,9 +36,180 @@ if ![gcc_parallel_test_run_p profiles] {
 }
 gcc_parallel_test_enable 0
 
+# ---- helpers for module CMI checks (subset of modules.exp) ----
+
+global module_cmis
+set DEFAULT_REPO "gcm.cache"
+
+# Path encoding for header-unit CMIs (same as modules.exp).
+proc profiles-munge-cmi {cmi} {
+    if { [string index $cmi 1] == ":" && [info exists ::env(OS)] \
+	 && [string match "Windows*" $::env(OS)] } {
+	set cmi [string replace $cmi 1 1 "-"]
+    } elseif { [string index $cmi 0] == "/" } {
+	set cmi [string range $cmi 1 end]
+    } else {
+	set cmi ",/$cmi"
+    }
+    set path [file split $cmi]
+    set rplac {}
+    foreach elt $path {lappend rplac [expr {$elt == ".." ? ",," : $elt}]}
+    return [file join {*}$rplac]
+}
+
+# dg-module-cmi !?=?NAME WHEN?
+# dg-module-cmi !?{} - header unit (CMI named from the source path)
+proc dg-module-cmi { args } {
+    if { [llength $args] > 3 } {
+	error "[lindex $args 0]: too many arguments"
+	return
+    }
+    set spec [lindex $args 1]
+    set when {}
+    if { [llength $args] > 2 } {
+	set when [lindex $args 2]
+    }
+
+    if { [string index $spec 0] == "!" } {
+	set name [string range $spec 1 end]
+	set not 1
+    } else {
+	set name $spec
+	set not 0
+    }
+
+    if { [string index $name 0] == "=" } {
+	set cmi [string range $name 1 end]
+    } else {
+	if { $name == "" } {
+	    upvar prog srcname
+	    set cmi [profiles-munge-cmi "$srcname.gcm"]
+	} else {
+	    set cmi "[regsub : $name -].gcm"
+	}
+	global DEFAULT_REPO
+	set cmi "$DEFAULT_REPO/$cmi"
+    }
+
+    file_on_host delete "$cmi"
+
+    global module_cmis
+    lappend module_cmis [list $spec $when $not $cmi]
+}
+
+proc profiles-module-cmi-p { src ifs std } {
+    set res {}
+    foreach if_arg $ifs {
+	set spec [lindex $if_arg 0]
+	set when [lindex $if_arg 1]
+	if { $when != "" } {
+	    switch [dg-process-target $when] {
+		"S" { }
+		"N" { continue }
+		"F" { setup_xfail "*-*-*" }
+		"P" { }
+	    }
+	}
+	set not [lindex $if_arg 2]
+	set cmi [lindex $if_arg 3]
+	global srcdir
+	set relcmi [string map [list $srcdir "/\$srcdir"] $cmi]
+	if { $not != [file_on_host exists $cmi] } {
+	    pass "$src $std module-cmi $spec ($relcmi)"
+	} else {
+	    fail "$src $std module-cmi $spec ($relcmi)"
+	    set not [expr ! $not]
+	}
+	if { ! $not } {
+	    lappend res $cmi
+	}
+    }
+    return $res
+}
+
+proc profiles-cleanup-module-files { files } {
+    foreach f $files {
+	file_on_host delete $f
+    }
+}
+
 # ---- ordinary profile tests ----
 
 set ordinary [lsort [glob -nocomplain $srcdir/$subdir/*.C]]
+set ordinary [prune $ordinary "$srcdir/$subdir/enforce-module*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-module*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-header*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-place-2.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-place-*_*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/enforce-place-*_*.C"]
 g++-dg-runtest $ordinary "" $DEFAULT_CXXFLAGS
+
+# ---- ungrouped module interface / CMI export tests ----
+
+proc profiles-run-module-tests { tests } {
+    global srcdir runtests DEFAULT_CXXFLAGS DEFAULT_REPO
+
+    foreach test $tests {
+	if ![runtest_file_p $runtests $test] {
+	    continue
+	}
+	set option_list [g++-std-flags $test]
+	foreach std $option_list {
+	    global module_cmis
+	    file_on_host delete $DEFAULT_REPO
+	    set module_cmis {}
+	    verbose "Testing [file tail $test] $std" 1
+	    dg-test -keep-output $test "$std" $DEFAULT_CXXFLAGS
+	    set testcase [string range $test [string length "$srcdir/"] end]
+	    set mod_files [profiles-module-cmi-p $testcase $module_cmis $std]
+	    profiles-cleanup-module-files $mod_files
+	    file_on_host delete "[file rootname [file tail $test]].o"
+	    file_on_host delete "[file rootname [file tail $test]].s"
+	}
+    }
+}
+
+profiles-run-module-tests [lsort [concat \
+    [glob -nocomplain $srcdir/$subdir/enforce-module-\[0-9\].C] \
+    [glob -nocomplain $srcdir/$subdir/require-place-2.C]]]
+
+# ---- grouped module tests: *_a.[CH] + followers ----
+
+proc profiles-run-grouped-module-tests { pattern } {
+    global srcdir subdir runtests DEFAULT_CXXFLAGS DEFAULT_REPO
+
+    foreach src [lsort [glob -nocomplain $srcdir/$subdir/$pattern]] {
+	if ![runtest_file_p $runtests $src] {
+	    continue
+	}
+	set tests [lsort [find [file dirname $src] \
+	    [regsub {_a.[CH]$} [file tail $src] {_[a-z].[CH]}]]]
+
+	set option_list [g++-std-flags $src]
+	foreach std $option_list {
+	    global module_cmis
+	    file_on_host delete $DEFAULT_REPO
+	    set mod_files {}
+	    foreach test $tests {
+		set module_cmis {}
+		verbose "Testing [file tail $test] $std" 1
+		dg-test -keep-output $test "$std" $DEFAULT_CXXFLAGS
+		set testcase [string range $test [string length "$srcdir/"] end]
+		lappend mod_files \
+		    [profiles-module-cmi-p $testcase $module_cmis $std]
+		file_on_host delete "[file rootname [file tail $test]].o"
+		file_on_host delete "[file rootname [file tail $test]].s"
+	    }
+	    profiles-cleanup-module-files $mod_files
+	    catch { file delete -force $DEFAULT_REPO }
+	}
+    }
+}
+
+profiles-run-grouped-module-tests "enforce-module-*_a.C"
+profiles-run-grouped-module-tests "require-module-*_a.C"
+profiles-run-grouped-module-tests "require-header-*_a.H"
+profiles-run-grouped-module-tests "require-place-*_a.C"
+profiles-run-grouped-module-tests "enforce-place-*_a.C"
 
 gcc_parallel_test_enable 1

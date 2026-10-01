@@ -17451,13 +17451,15 @@ cp_parser_module_declaration (cp_parser *parser, module_parse mp_state,
       if (mod && cp_lexer_peek_token (parser->lexer)->type == CPP_COLON)
 	mod = cp_parser_module_partition (parser, mod);
       tree attrs = cp_parser_module_attributes_opt (parser);
+      tree exported_profiles = extract_profile_enforcements (&attrs, false);
 
       if (mod)
 	mp_state = MP_PURVIEW_IMPORTS;
       if (!mod || !cp_parser_require (parser, CPP_SEMICOLON, RT_SEMICOLON))
 	goto skip_eol;
 
-      declare_module (mod, token->location, exporting, attrs, parse_in);
+      declare_module (mod, token->location, exporting, exported_profiles,
+		      parse_in);
       cp_parser_require_pragma_eol (parser, token);
     }
 

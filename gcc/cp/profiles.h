@@ -92,6 +92,11 @@ extern profile_enforcement *add_profile_enforcement (tree enforcement,
    current translation unit, return it; otherwise return NULL.  */
 extern profile_enforcement *profile_enforcement_exists (tree name);
 
+/* TREE_LIST of all profile-enforcements recorded in this translation unit
+   (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause), in order, or
+   NULL_TREE if none.  Fresh list nodes; argument clauses are shared.  */
+extern tree profile_enforcements_as_list (void);
+
 /* From ATTRS, extract the designators of any profiles::enforce attributes
    into a single TREE_LIST of enforcements (TREE_PURPOSE = profile-name,
    TREE_VALUE = argument clause).  If REMOVE_P, also unlink those attributes
@@ -117,5 +122,16 @@ extern tree materialize_profile_enforcement_args (tree enforcements);
 /* True if the two profile-designator argument clauses match for the purpose
    of matching a profiles::require against an exported profiles::enforce.  */
 extern bool profile_designator_args_match (tree a, tree b);
+
+/* For each designator in REQUIRED, ensure EXPORTED contains a matching
+   enforce designator (same profile-name and matching argument clause).
+   MODULE_NAME is used in diagnostics; LOC is the import location.  */
+extern void check_profile_requirements (location_t loc,
+					const char *module_name,
+					tree required, tree exported);
+
+/* Write a one-line description of ENFORCEMENT (a TREE_LIST of profile-name
+   and optional deferred argument clause) to STREAM.  */
+extern void dump_profile_enforcement (FILE *stream, tree enforcement);
 
 #endif /* GCC_CP_PROFILES_H */
