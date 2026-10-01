@@ -300,6 +300,22 @@ profile_enforcement_exists (tree name)
   return NULL;
 }
 
+/* See profiles.h.  */
+
+tree
+profile_enforcements_as_list (void)
+{
+  tree list = NULL_TREE;
+  unsigned int i;
+  for (i = 0; i < vec_safe_length (profile_enforcements); i++)
+    {
+      profile_enforcement *pe = (*profile_enforcements)[i];
+      tree e = pe->enforcement;
+      list = tree_cons (TREE_PURPOSE (e), TREE_VALUE (e), list);
+    }
+  return nreverse (list);
+}
+
 /* Attribute-name spelling for KIND.  Only enforce and require carry
    designator lists today.  */
 
@@ -569,6 +585,61 @@ profile_designator_args_match (tree a, tree b)
   free (sa);
   free (sb);
   return eq;
+}
+
+/* Ensure every designator in REQUIRED is matched by an exported enforce.  */
+
+void
+check_profile_requirements (location_t loc, const char *module_name,
+			    tree required, tree exported)
+{
+  for (tree r = required; r; r = TREE_CHAIN (r))
+    {
+      tree rname = TREE_PURPOSE (r);
+      tree rargs = TREE_VALUE (r);
+      bool name_seen = false;
+      bool matched = false;
+
+      for (tree e = exported; e; e = TREE_CHAIN (e))
+	{
+	  if (TREE_PURPOSE (e) != rname)
+	    continue;
+	  name_seen = true;
+	  if (profile_designator_args_match (rargs, TREE_VALUE (e)))
+	    {
+	      matched = true;
+	      break;
+	    }
+	}
+
+      if (matched)
+	continue;
+
+      if (name_seen)
+	error_at (loc,
+		  "module %qs does not enforce profile %qE with the "
+		  "required arguments",
+		  module_name, rname);
+      else
+	error_at (loc, "module %qs does not enforce required profile %qE",
+		  module_name, rname);
+    }
+}
+
+/* Write a one-line description of ENFORCEMENT to STREAM. This
+   is used for module purposes.  If enforcement arguments were
+   profiles responsibility, we could have the profile decide how
+   it wants to be represented in the module, and whether a
+   requirement matches the enforcement. */
+
+void
+dump_profile_enforcement (FILE *stream, tree enforcement)
+{
+  gcc_checking_assert (TREE_CODE (enforcement) == TREE_LIST);
+
+  fputs ("enforce ", stream);
+  fputs (IDENTIFIER_POINTER (TREE_PURPOSE (enforcement)), stream);
+  dump_profile_args (stream, TREE_VALUE (enforcement));
 }
 
 #include "gt-cp-profiles.h"
