@@ -169,8 +169,10 @@ add_profile_enforcement (tree enforcement, location_t location)
   profile_enforcement *existing = profile_enforcement_exists (name);
   if (existing != NULL)
     {
-      if (profile_enforcement_args_equal (TREE_VALUE (existing->enforcement),
-					  TREE_VALUE (enforcement)))
+      /* Existing args may already be STRING_CST spellings; the new clause
+	 may still be a live DEFERRED_PARSE.  */
+      if (profile_designator_args_match (TREE_VALUE (existing->enforcement),
+					 TREE_VALUE (enforcement)))
 	return existing;
 
       error_at (location,
@@ -183,6 +185,10 @@ add_profile_enforcement (tree enforcement, location_t location)
   if (spec && spec->enforce
       && !spec->enforce (name, TREE_VALUE (enforcement), location))
     return NULL;
+
+  /* Materialize argument spellings while token caches are still live
+     (see materialize_profile_enforcement_args).  */
+  materialize_profile_enforcement_args (enforcement);
 
   profile_enforcement *pe = ggc_alloc<profile_enforcement> ();
   pe->enforcement = enforcement;
@@ -208,6 +214,22 @@ profile_enforcement_exists (tree name)
 	return pe;
     }
   return NULL;
+}
+
+/* See profiles.h.  */
+
+tree
+profile_enforcements_as_list (void)
+{
+  tree list = NULL_TREE;
+  unsigned int i;
+  for (i = 0; i < vec_safe_length (profile_enforcements); i++)
+    {
+      profile_enforcement *pe = (*profile_enforcements)[i];
+      tree e = pe->enforcement;
+      list = tree_cons (TREE_PURPOSE (e), TREE_VALUE (e), list);
+    }
+  return nreverse (list);
 }
 
 /* Attribute-name spelling for KIND.  Only enforce and require carry
@@ -449,10 +471,12 @@ profile_enforcement_args_spelling (tree args)
 
 /* Replace any DEFERRED_PARSE argument clauses in ENFORCEMENTS with
    STRING_CST spellings.  Parser token caches are not guaranteed to live
-   until CMI write-out, so exported profiles must not retain them.  */
+   until CMI write-out, so recorded/exported profiles must not retain them.
+   Called when recording a TU enforcement and again when installing a
+   module's exported set (no-op if already STRING_CST / NULL).  */
 
 tree
-stabilize_profile_enforcements (tree enforcements)
+materialize_profile_enforcement_args (tree enforcements)
 {
   for (tree e = enforcements; e; e = TREE_CHAIN (e))
     {

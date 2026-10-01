@@ -17265,6 +17265,18 @@ module_state::read_partitions (unsigned count)
 void
 module_state::write_exported_profiles (elf_out *to, unsigned *crc_ptr)
 {
+  /* Header units have no export module-declaration; freestanding
+     profiles::enforce empty-declarations in the header are the advertised
+     set ([decl.profile.require]).  Promote the TU's recorded enforcements
+     into exported_profiles before serializing.  Named modules keep only
+     what declare_module installed from the module-declaration.  */
+  if (is_header () && !exported_profiles)
+    {
+      tree list = profile_enforcements_as_list ();
+      if (list)
+	exported_profiles = materialize_profile_enforcement_args (list);
+    }
+
   if (!exported_profiles)
     return;
 
@@ -23027,9 +23039,9 @@ declare_module (module_state *module, location_t from_loc, bool exporting_p,
   if (exporting_p && !module->is_partition () && exported_profiles)
     {
       /* Token caches backing DEFERRED_PARSE args will not survive until CMI
-	 write-out; freeze spellings now.  */
+	 write-out; materialize spellings now.  */
       module->exported_profiles
-	= stabilize_profile_enforcements (exported_profiles);
+	= materialize_profile_enforcement_args (exported_profiles);
 
       unsigned n = dump.push (NULL);
       if (dump ())

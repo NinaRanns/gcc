@@ -43,6 +43,24 @@ gcc_parallel_test_enable 0
 global module_cmis
 set DEFAULT_REPO "gcm.cache"
 
+# Path encoding for header-unit CMIs (same as modules.exp).
+proc profiles-munge-cmi {cmi} {
+    if { [string index $cmi 1] == ":" && [info exists ::env(OS)] \
+	 && [string match "Windows*" $::env(OS)] } {
+	set cmi [string replace $cmi 1 1 "-"]
+    } elseif { [string index $cmi 0] == "/" } {
+	set cmi [string range $cmi 1 end]
+    } else {
+	set cmi ",/$cmi"
+    }
+    set path [file split $cmi]
+    set rplac {}
+    foreach elt $path {lappend rplac [expr {$elt == ".." ? ",," : $elt}]}
+    return [file join {*}$rplac]
+}
+
+# dg-module-cmi !?=?NAME WHEN?
+# dg-module-cmi !?{} - header unit (CMI named from the source path)
 proc dg-module-cmi { args } {
     if { [llength $args] > 3 } {
 	error "[lindex $args 0]: too many arguments"
@@ -65,7 +83,12 @@ proc dg-module-cmi { args } {
     if { [string index $name 0] == "=" } {
 	set cmi [string range $name 1 end]
     } else {
-	set cmi "[regsub : $name -].gcm"
+	if { $name == "" } {
+	    upvar prog srcname
+	    set cmi [profiles-munge-cmi "$srcname.gcm"]
+	} else {
+	    set cmi "[regsub : $name -].gcm"
+	}
 	global DEFAULT_REPO
 	set cmi "$DEFAULT_REPO/$cmi"
     }
@@ -117,6 +140,7 @@ proc profiles-cleanup-module-files { files } {
 set ordinary [lsort [glob -nocomplain $srcdir/$subdir/*.C]]
 set ordinary [prune $ordinary "$srcdir/$subdir/enforce-module*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-module*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/require-header*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-place-2.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-place-*_*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/enforce-place-\[0-9\].C"]
@@ -148,7 +172,7 @@ foreach test [lsort [concat \
     }
 }
 
-# ---- grouped module tests: *_a.C + followers ----
+# ---- grouped module tests: *_a.[CH] + followers ----
 
 proc profiles-run-grouped-module-tests { pattern } {
     global srcdir subdir runtests DEFAULT_CXXFLAGS DEFAULT_REPO
@@ -158,7 +182,7 @@ proc profiles-run-grouped-module-tests { pattern } {
 	    continue
 	}
 	set tests [lsort [find [file dirname $src] \
-	    [regsub {_a.C$} [file tail $src] {_[a-z].C}]]]
+	    [regsub {_a.[CH]$} [file tail $src] {_[a-z].[CH]}]]]
 
 	set option_list [g++-std-flags $src]
 	foreach std $option_list {
@@ -183,6 +207,7 @@ proc profiles-run-grouped-module-tests { pattern } {
 
 profiles-run-grouped-module-tests "enforce-module-*_a.C"
 profiles-run-grouped-module-tests "require-module-*_a.C"
+profiles-run-grouped-module-tests "require-header-*_a.H"
 profiles-run-grouped-module-tests "require-place-*_a.C"
 profiles-run-grouped-module-tests "enforce-place-*_a.C"
 

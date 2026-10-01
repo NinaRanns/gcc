@@ -88,6 +88,11 @@ extern profile_enforcement *add_profile_enforcement (tree enforcement,
    current translation unit, return it; otherwise return NULL.  */
 extern profile_enforcement *profile_enforcement_exists (tree name);
 
+/* TREE_LIST of all profile-enforcements recorded in this translation unit
+   (TREE_PURPOSE = profile-name, TREE_VALUE = argument clause), in order, or
+   NULL_TREE if none.  Fresh list nodes; argument clauses are shared.  */
+extern tree profile_enforcements_as_list (void);
+
 /* From ATTRS, extract the designators of any profiles::enforce attributes
    into a single TREE_LIST of enforcements (TREE_PURPOSE = profile-name,
    TREE_VALUE = argument clause).  If REMOVE_P, also unlink those attributes
@@ -110,8 +115,9 @@ extern tree extract_profile_requirements (tree *attrs, bool remove_p);
 extern char *profile_enforcement_args_spelling (tree args);
 
 /* Convert DEFERRED_PARSE argument clauses in ENFORCEMENTS to STRING_CST
-   spellings so they remain valid after the parser's token caches are gone.  */
-extern tree stabilize_profile_enforcements (tree enforcements);
+   spellings so they remain valid after the parser's token caches are gone.
+   No-op if already STRING_CST or NULL.  */
+extern tree materialize_profile_enforcement_args (tree enforcements);
 
 /* True if the two profile-designator argument clauses match for the purpose
    of matching a profiles::require against an exported profiles::enforce.  */
