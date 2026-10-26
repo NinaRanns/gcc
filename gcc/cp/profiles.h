@@ -32,6 +32,41 @@ enum profiles_attr_kind : uint16_t {
   PAK_EXEMPT = 4,
 };
 
+/* Spec for a concrete profile-name, analogous to attribute_spec for a
+   concrete attribute name.  NAME is the full profile-name spelling as it
+   appears in a designator (e.g. "acme::bob" or "std::init"), not a bare
+   root with catch-all dispatch.
+
+   ENFORCE is invoked when profiles::enforce mentions this name.  NAME is
+   the profile-name identifier, ARGS is the designator's argument clause
+   (a DEFERRED_PARSE, or NULL_TREE when there was none), and LOC is where
+   the enforcement appeared.  Return true to accept the enforcement (the
+   framework records it); return false to reject it (it is not recorded).
+   ENFORCE may be NULL when no special handling is needed beyond claiming
+   the name.  The plugin otherwise uses ordinary GCC plugin callbacks for
+   checking; it owns whatever "enabled" state it derives from ENFORCE.  */
+
+struct profile_spec
+{
+  const char *name;
+  bool (*enforce) (tree name, tree args, location_t loc);
+};
+
+/* Register PROFILE with the C++ profiles framework.  Typically called from
+   a PLUGIN_PROFILES callback.  PROFILE must remain live for the rest of the
+   compilation.  Duplicate names are diagnosed.  */
+extern void register_profile (const profile_spec *profile);
+
+/* If a profile with the given NAME has been registered, return its spec;
+   otherwise return NULL.  */
+extern const profile_spec *lookup_profile_spec (tree name);
+
+/* Invoke PLUGIN_PROFILES so plugins can call register_profile.  */
+extern void init_profiles (void);
+
+/* Suppress the profile named NAME.  */
+extern void suppress_profile (tree name, location_t);
+
 /* Set up the framework's own per-TU state under -fprofiles: what the
    framework records from the source.  How profiles are told about any of it
    is a separate question, not settled.  */

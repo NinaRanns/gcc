@@ -29,13 +29,59 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-pretty-print.h"
 #include "dumpfile.h"
 #include "langhooks.h"
+#include "plugin.h"
 #include "profiles.h"
+
+/* Registered profile specs (plugin-owned storage).  Not GC roots: plugins
+   keep the profile_spec objects live for the compilation.  */
+
+static vec<const profile_spec *> profile_registry;
 
 /* All profile-enforcements found in the current translation unit, in the
    order they were seen.  Each element is GC-allocated so pointers remain
    valid after further pushes.  */
 
 static GTY(()) vec<profile_enforcement *, va_gc> *profile_enforcements;
+
+/* Register PROFILE under its full profile-name.  */
+
+void
+register_profile (const profile_spec *profile)
+{
+  gcc_assert (profile != NULL && profile->name != NULL);
+
+  for (unsigned i = 0; i < profile_registry.length (); ++i)
+    if (!strcmp (profile_registry[i]->name, profile->name))
+      {
+	error ("duplicate profile %qs", profile->name);
+	return;
+      }
+
+  profile_registry.safe_push (profile);
+}
+
+/* Return the registered spec for NAME, or NULL.  */
+
+const profile_spec *
+lookup_profile_spec (tree name)
+{
+  if (name == NULL_TREE || !identifier_p (name))
+    return NULL;
+
+  const char *n = IDENTIFIER_POINTER (name);
+  for (unsigned i = 0; i < profile_registry.length (); ++i)
+    if (!strcmp (profile_registry[i]->name, n))
+      return profile_registry[i];
+  return NULL;
+}
+
+/* Give plugins a chance to call register_profile.  */
+
+void
+init_profiles (void)
+{
+  invoke_plugin_callbacks (PLUGIN_PROFILES, NULL);
+}
 
 /* The #include directives of this translation unit, in order, and its
    exemptions.  */
@@ -177,6 +223,23 @@ add_profile_exemption (tree name, tree header, bool angle_p,
     dump_end (profiles_dump_id, dump);
 }
 
+/* Suppress the profile named NAME.  */
+
+void
+suppress_profile (tree name, location_t location)
+{
+  const profile_spec *spec = lookup_profile_spec (name);
+
+  if (!spec)
+    {
+      error_at (location,
+		"profile %qE cannot be suppressed because it is not loaded", name);
+      return;
+    }
+
+  // profile spec needs to hold functions registered for the supression
+}
+
 /* Return true if the tree values associated with two tokens are the same.
    Token values are not general C++ expressions: in particular, string
    tokens produced under C_LEX_STRING_NO_JOIN are STRING_CSTs with a NULL
@@ -305,8 +368,9 @@ profile_enforcement_args_equal (tree a, tree b)
    If a profile-enforcement with the same profile-name has already been
    recorded, its argument clause is compared against ENFORCEMENT's: if they
    consist of the same tokens the previously stored enforcement is returned,
-   otherwise an error is issued and NULL is returned.  Otherwise
-   ENFORCEMENT is stored and returned.  */
+   otherwise an error is issued and NULL is returned.  Otherwise, if a matching
+   profile_spec is registered and its enforce hook rejects the designator,
+   NULL is returned.  Otherwise ENFORCEMENT is stored and returned.  */
 
 profile_enforcement *
 add_profile_enforcement (tree enforcement, location_t location)
@@ -327,6 +391,11 @@ add_profile_enforcement (tree enforcement, location_t location)
       return NULL;
     }
 
+  const profile_spec *spec = lookup_profile_spec (name);
+  if (spec && spec->enforce
+      && !spec->enforce (name, TREE_VALUE (enforcement), location))
+    return NULL;
+
   /* Materialize argument spellings while token caches are still live
      (see materialize_profile_enforcement_args).  */
   materialize_profile_enforcement_args (enforcement);
@@ -334,6 +403,8 @@ add_profile_enforcement (tree enforcement, location_t location)
   profile_enforcement *pe = ggc_alloc<profile_enforcement> ();
   pe->enforcement = enforcement;
   pe->location = location;
+  // somehow figure out what the relevant profile hooks are and add it to the profile enforcement
+
   vec_safe_push (profile_enforcements, pe);
   return pe;
 }

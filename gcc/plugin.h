@@ -204,4 +204,9 @@ extern void register_attribute (const struct attribute_spec *attr);
 extern struct scoped_attributes* register_scoped_attributes (const struct scoped_attribute_spec &,
 							     bool);
 
+/* In cp/profiles.cc (C++ frontend).  Include cp/profiles.h for the
+   definition of struct profile_spec.  */
+struct profile_spec;
+extern void register_profile (const struct profile_spec *profile);
+
 #endif /* PLUGIN_H */

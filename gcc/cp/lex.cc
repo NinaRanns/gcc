@@ -32,6 +32,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gcc-rich-location.h"
 #include "cp-name-hint.h"
 #include "langhooks.h"
+#include "profiles.h"
 
 static int interface_strcmp (const char *);
 static void init_cp_traits (void);
@@ -439,6 +440,7 @@ cxx_init (void)
 
   if (flag_profiles)
     init_profiles_framework ();
+  init_profiles ();
 
   input_location = saved_loc;
   return true;

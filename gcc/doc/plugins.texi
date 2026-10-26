@@ -191,6 +191,7 @@ enum plugin_event
   PLUGIN_GGC_END,               /* Called at end of GGC. */
   PLUGIN_REGISTER_GGC_ROOTS,    /* Register an extra GGC root table. */
   PLUGIN_ATTRIBUTES,            /* Called during attribute registration */
+  PLUGIN_PROFILES,              /* Called during C++ profile registration */
   PLUGIN_START_UNIT,            /* Called before processing a translation unit.  */
   PLUGIN_PRAGMAS,               /* Called during pragma registration. */
   /* Called before first pass from all_passes.  */
@@ -393,6 +394,36 @@ register_attributes (void *event_data, void *data)
   register_attribute (&user_attr);
 @}
 
+@end smallexample
+
+For C++ profiles, the @code{PLUGIN_PROFILES} callback is called during
+profile registration (from the C++ frontend).  Use
+@code{register_profile} (declared in @file{cp/profiles.h}) to claim a
+concrete profile-name such as @code{acme::bob}.  When
+@code{profiles::enforce} mentions that name, the framework looks up the
+registered profile and calls its @code{enforce} hook with the designator
+arguments; the plugin keeps its own enabled state and may also use any
+ordinary plugin events for checking.
+
+@smallexample
+#include "cp/profiles.h"
+
+static bool
+handle_acme_bob (tree name, tree args, location_t loc)
+@{
+  /* Record that this profile is enabled; return false to reject.  */
+  return true;
+@}
+
+static const profile_spec acme_bob =
+  @{ "acme::bob", handle_acme_bob @};
+
+static void
+register_profiles (void *event_data, void *data)
+@{
+  register_profile (&acme_bob);
+@}
+/* register_callback (plugin_name, PLUGIN_PROFILES, register_profiles, NULL); */
 @end smallexample
 
 
