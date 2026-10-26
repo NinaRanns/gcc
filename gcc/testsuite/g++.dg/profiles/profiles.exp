@@ -18,6 +18,8 @@
 # Module interface export of profiles::enforce is checked via
 # -fdump-lang-module (exported-profiles recorded for the CMI).
 # Import-side profiles::require is checked against that exported set.
+# Plugin registration of concrete profile-names is exercised via
+# PLUGIN_PROFILES / register_profile.
 
 load_lib g++-dg.exp
 load_lib target-supports.exp
@@ -143,6 +145,7 @@ set ordinary [prune $ordinary "$srcdir/$subdir/suppress-module*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-place-2.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-place-*_*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/enforce-place-*_*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/profile_plugin*.C"]
 g++-dg-runtest $ordinary "" $DEFAULT_CXXFLAGS
 
 # ---- ungrouped module interface / CMI export tests ----
@@ -213,5 +216,31 @@ profiles-run-grouped-module-tests "require-header-*_a.H"
 profiles-run-grouped-module-tests "require-place-*_a.C"
 profiles-run-grouped-module-tests "enforce-place-*_a.C"
 profiles-run-grouped-module-tests "suppress-module-*_a.C"
+
+# ---- plugin profile registration ----
+
+global ENABLE_PLUGIN
+if { [info exists ENABLE_PLUGIN] } {
+    load_lib plugin-support.exp
+    set default_flags $DEFAULT_CXXFLAGS
+    set PLUGIN_DEFAULT_REPO "gcm.cache"
+
+    set plugin_tests [list \
+	[list $srcdir/$subdir/profile_plugin.cc \
+	      $srcdir/$subdir/profile_plugin-test-1.C]]
+
+    foreach plugin_test $plugin_tests {
+	set plugin_src [lindex $plugin_test 0]
+	if ![runtest_file_p $runtests $plugin_src] then {
+	    continue
+	}
+	set plugin_input_tests [lrange $plugin_test 1 end]
+	plugin-test-execute $plugin_src $plugin_input_tests
+    }
+
+    foreach file [find $PLUGIN_DEFAULT_REPO *.gcm] {
+	file_on_host delete $file
+    }
+}
 
 gcc_parallel_test_enable 1
