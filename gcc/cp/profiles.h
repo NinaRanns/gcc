@@ -63,6 +63,9 @@ extern const profile_spec *lookup_profile_spec (tree name);
 /* Invoke PLUGIN_PROFILES so plugins can call register_profile.  */
 extern void init_profiles (void);
 
+/* Suppress the profile named NAME.  */
+extern void suppress_profile (tree name, location_t);
+
 /* A profile-enforcement seen in the current translation unit.  More
    information will be added here as the profiles framework grows.  */
 

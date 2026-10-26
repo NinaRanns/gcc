@@ -80,6 +80,23 @@ init_profiles (void)
   invoke_plugin_callbacks (PLUGIN_PROFILES, NULL);
 }
 
+/* Suppress the profile named NAME.  */
+
+void
+suppress_profile (tree name, location_t location)
+{
+  const profile_spec *spec = lookup_profile_spec (name);
+
+  if (!spec)
+    {
+      error_at (location,
+		"profile %qE can not be suppressed because it is not loaded", name);
+      return;
+    }
+
+  // profile spec needs to hold functions registered for the supression
+}
+
 /* Return true if the tree values associated with two tokens are the same.
    Token values are not general C++ expressions: in particular, string
    tokens produced under C_LEX_STRING_NO_JOIN are STRING_CSTs with a NULL
@@ -193,6 +210,8 @@ add_profile_enforcement (tree enforcement, location_t location)
   profile_enforcement *pe = ggc_alloc<profile_enforcement> ();
   pe->enforcement = enforcement;
   pe->location = location;
+  // somehow figure out what the relevant profile hooks are and add it to the profile enforcement
+
   vec_safe_push (profile_enforcements, pe);
   return pe;
 }
@@ -552,7 +571,11 @@ check_profile_requirements (location_t loc, const char *module_name,
     }
 }
 
-/* Write a one-line description of ENFORCEMENT to STREAM.  */
+/* Write a one-line description of ENFORCEMENT to STREAM. This
+   is used for module purposes.  If enforcement arguments were
+   profiles responsibility, we could have the profile decide how
+   it wants to be represented in the module, and whether a
+   requirement matches the enforcement. */
 
 void
 dump_profile_enforcement (FILE *stream, tree enforcement)
