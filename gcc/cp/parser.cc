@@ -20831,6 +20831,21 @@ cp_parser_check_constrained_type_parm (cp_parser *parser,
   return true;
 }
 
+/* Build the PARM_DECL for a non-type template parameter from PARMDECL,
+   applying its attributes as for a function parameter.  */
+
+static tree
+cp_parser_grok_nontype_template_parm (cp_parameter_declarator *parmdecl)
+{
+  tree parm = grokdeclarator (parmdecl->declarator,
+			      &parmdecl->decl_specifiers,
+			      TPARM, /*initialized=*/0,
+			      &parmdecl->decl_specifiers.attributes);
+  if (parm != error_mark_node && parmdecl->decl_specifiers.attributes)
+    cplus_decl_attributes (&parm, parmdecl->decl_specifiers.attributes, 0);
+  return parm;
+}
+
 /* Build a constrained template parameter based on the PARMDECL
    declarator. The type of PARMDECL is the constrained type, which
    refers to the prototype template parameter that ultimately
@@ -20868,9 +20883,7 @@ finish_constrained_parameter (cp_parser *parser,
 	   of the pointed-to type).  We keep it in PLACEHOLDER_TYPE_CONSTRAINTS
 	   and effectively treat it like a non-NTTP constrained auto.  */
 	set_template_parm_constraints_p = false;
-      parm = grokdeclarator (parmdecl->declarator,
-			     &parmdecl->decl_specifiers,
-			     TPARM, /*initialized=*/0, /*attrlist=*/NULL);
+      parm = cp_parser_grok_nontype_template_parm (parmdecl);
     }
   else
     {
@@ -21101,10 +21114,7 @@ cp_parser_template_parameter (cp_parser* parser, bool *is_non_type,
   // Now we're sure that the parameter is a non-type parameter.
   *is_non_type = true;
 
-  parm = grokdeclarator (parameter_declarator->declarator,
-			 &parameter_declarator->decl_specifiers,
-			 TPARM, /*initialized=*/0,
-			 /*attrlist=*/NULL);
+  parm = cp_parser_grok_nontype_template_parm (parameter_declarator);
   if (parm == error_mark_node)
     return error_mark_node;
 
