@@ -10265,6 +10265,12 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 					jump_target);
       break;
 
+    case PROFILED_STMT:
+      r = cxx_eval_constant_expression (ctx, PROFILED_STMT_BODY (t), lval,
+					non_constant_p, overflow_p,
+					jump_target);
+      break;
+
     case TRY_BLOCK:
       r = cxx_eval_constant_expression (ctx, TRY_STMTS (t), lval,
 					non_constant_p, overflow_p,
@@ -13360,6 +13366,7 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
     case EH_SPEC_BLOCK:
     case EXPR_STMT:
     case PAREN_EXPR:
+    case PROFILED_STMT:
       /* For convenience.  */
     case LOOP_EXPR:
     case EXIT_EXPR:

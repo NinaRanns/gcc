@@ -20395,6 +20395,15 @@ tsubst_stmt (tree t, tree args, tsubst_flags_t complain, tree in_decl)
       }
       break;
 
+    case PROFILED_STMT:
+      stmt = build_stmt (EXPR_LOCATION (t), PROFILED_STMT, NULL_TREE,
+			 PROFILED_STMT_ATTRIBUTES (t));
+      add_stmt (stmt);
+      PROFILED_STMT_BODY (stmt) = push_stmt_list ();
+      RECUR (PROFILED_STMT_BODY (t));
+      PROFILED_STMT_BODY (stmt) = pop_stmt_list (PROFILED_STMT_BODY (stmt));
+      break;
+
     case TRY_BLOCK:
       if (CLEANUP_P (t))
 	{

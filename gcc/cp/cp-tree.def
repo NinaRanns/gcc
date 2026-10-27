@@ -277,6 +277,12 @@ DEFTREECODE (EH_SPEC_BLOCK, "eh_spec_block", tcc_statement, 2)
    HANDLER_BODY.  */
 DEFTREECODE (HANDLER, "handler", tcc_statement, 2)
 
+/* A statement with a profiles::suppress among its attributes: statements
+   have no attribute slot, so it is kept here.  PROFILED_STMT_BODY is the
+   statement, PROFILED_STMT_ATTRIBUTES its attributes.  A placeholder, and
+   its name provisional: genericization replaces it by its body.  */
+DEFTREECODE (PROFILED_STMT, "profiled_stmt", tcc_statement, 2)
+
 /* A MUST_NOT_THROW_EXPR wraps an expression that may not
    throw, and must call terminate if it does.  The second argument
    is a condition, used in templates to express noexcept (condition).  */

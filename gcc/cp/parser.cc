@@ -14325,6 +14325,67 @@ cp_parser_handle_directive_omp_attributes (cp_parser *parser, tree *pattrs,
   parser->omp_declare_simd->attribs[!start] = pattrs;
 }
 
+/* A statement whose attributes ATTRS include a profiles::suppress, starting
+   at LOC, has been parsed: the statements it added to LIST, after TAIL (or
+   from the start, if TAIL is null), become the body of a PROFILED_STMT in
+   their place.  */
+
+static void
+cp_parser_finish_profiled_stmt (cp_parser *parser, tree list,
+				tree_statement_list_node *tail, tree attrs,
+				location_t loc)
+{
+  tree_stmt_iterator i;
+  if (tail)
+    {
+      i.ptr = tail;
+      i.container = list;
+      tsi_next (&i);
+    }
+  else
+    i = tsi_start (list);
+
+  tree body = NULL_TREE;
+  while (!tsi_end_p (i))
+    {
+      tree stmt = tsi_stmt (i);
+      tsi_delink (&i);
+      append_to_statement_list_force (stmt, &body);
+    }
+  tree profiled = NULL_TREE;
+  if (body)
+    {
+      profiled = build_stmt (loc, PROFILED_STMT, body, attrs);
+      add_stmt (profiled);
+    }
+
+  if (FILE *dump = dump_begin (profiles_dump_id, NULL))
+    {
+      int first = LOCATION_LINE (loc);
+      int last = LOCATION_LINE (cp_lexer_previous_token (parser->lexer)->location);
+      for (tree a = attrs; a; a = TREE_CHAIN (a))
+	if (is_attribute_namespace_p ("profiles", a)
+	    && is_attribute_p ("suppress", get_attribute_name (a))
+	    && TREE_VALUE (a))
+	  {
+	    fprintf (dump, "suppress %s at line %d: ",
+		     IDENTIFIER_POINTER (TREE_PURPOSE (TREE_VALUE (a))), first);
+	    if (!body)
+	      fprintf (dump, "wraps nothing\n");
+	    else
+	      {
+		fprintf (dump, "wraps");
+		for (tree_stmt_iterator j = tsi_start (body); !tsi_end_p (j);
+		     tsi_next (&j))
+		  fprintf (dump, " %s",
+			   get_tree_code_name (TREE_CODE (tsi_stmt (j))));
+		fprintf (dump, ", lines %d-%d\n", first, last);
+	      }
+	  }
+      dump_end (profiles_dump_id, dump);
+    }
+}
+
 /* Parse a statement.
 
    statement:
@@ -14384,6 +14445,10 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
   /* A copy of IN_COMPOUND which is set to false after seeing a label.
      This matters for certain pragmas.  */
   bool in_compound_for_pragma = in_compound;
+  /* For a profiles::suppress on the statement: the statement list, and
+     its last statement before this one was parsed.  */
+  tree profiled_list;
+  tree_statement_list_node *profiled_tail;
 
  restart:
   if (if_p != NULL)
@@ -14418,6 +14483,19 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	std_attrs = NULL_TREE;
     }
   has_std_attrs = cp_lexer_peek_token (parser->lexer) != token;
+
+  profiled_list = NULL_TREE;
+  profiled_tail = NULL;
+  if (flag_profiles
+      && std_attrs
+      && std_attrs != error_mark_node
+      && !in_statement_expr
+      && cur_stmt_list
+      && lookup_attribute ("profiles", "suppress", std_attrs))
+    {
+      profiled_list = cur_stmt_list;
+      profiled_tail = STATEMENT_LIST_TAIL (profiled_list);
+    }
 
   /* Peek at the next token.  */
   token = cp_lexer_peek_token (parser->lexer);
@@ -14766,6 +14844,13 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
   /* Set the line number for the statement.  */
   if (statement && STATEMENT_CODE_P (TREE_CODE (statement)))
     SET_EXPR_LOCATION (statement, statement_location);
+
+  if (profiled_list)
+    {
+      cp_parser_finish_profiled_stmt (parser, profiled_list, profiled_tail,
+				      std_attrs, attrs_loc);
+      std_attrs = remove_attribute ("profiles", "suppress", std_attrs);
+    }
 
   /* Allow "[[fallthrough]];" or "[[assume(cond)]];", but warn otherwise.  */
   if (std_attrs != NULL_TREE && any_nonignored_attribute_p (std_attrs))
@@ -34167,14 +34252,16 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
       tree profile_name = cp_parser_profiles_name (parser);
       if (profile_name == error_mark_node)
 	return error_mark_node;
+      tree profile_arg_list = NULL_TREE;
       if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
 	{
 	  cp_lexer_consume_token (parser->lexer);
-	  tree profile_arg_list
+	  profile_arg_list
 	    = cp_parser_profiles_argument_list (parser, /*suppress_p=*/true);
 	  if (profile_arg_list == error_mark_node)
 	    return error_mark_node;
 	}
+      arguments = build_tree_list (profile_name, profile_arg_list);
     }
   tree exempt_name = NULL_TREE, exempt_header = NULL_TREE;
   bool exempt_angle_p = false;
@@ -34216,8 +34303,9 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
       return error_mark_node;
     }
 
-  /* For enforce and require, TREE_VALUE is the TREE_LIST of designators.  */
-  if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
+  /* For enforce and require, TREE_VALUE is the TREE_LIST of designators;
+     for suppress, a TREE_LIST of the profile-name and its arguments.  */
+  if (kind == PAK_ENFORCE || kind == PAK_REQUIRE || kind == PAK_SUPPRESS)
     TREE_VALUE (attribute) = arguments;
   else if (kind == PAK_EXEMPT)
     add_profile_exemption (exempt_name, exempt_header, exempt_angle_p,
