@@ -243,4 +243,20 @@ if { [info exists ENABLE_PLUGIN] } {
     }
 }
 
+# ---- p3589r3-questions: tests for the points raised in review ----
+# Kept apart from the tests above, which follow the paper as written: these
+# show a gap or hole in P3589R3 and the behaviour chosen for it, and are
+# expected to change as the paper does.  Each is named after the review item
+# it shows.  A single-file module test there is *-module-*-N.C; a grouped one
+# is *_a.C with its followers.
+
+set questions [lsort [glob -nocomplain $srcdir/$subdir/p3589r3-questions/*.C]]
+set questions [prune $questions "$srcdir/$subdir/p3589r3-questions/*-module-*.C"]
+set questions [prune $questions "$srcdir/$subdir/p3589r3-questions/*_\[a-z\].C"]
+g++-dg-runtest $questions "" $DEFAULT_CXXFLAGS
+
+profiles-run-module-tests [lsort [glob -nocomplain \
+    $srcdir/$subdir/p3589r3-questions/*-module-*-\[0-9\].C]]
+profiles-run-grouped-module-tests "p3589r3-questions/*_a.C"
+
 gcc_parallel_test_enable 1
