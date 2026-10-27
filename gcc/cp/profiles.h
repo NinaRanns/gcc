@@ -32,6 +32,41 @@ enum profiles_attr_kind : uint16_t {
   PAK_EXEMPT = 4,
 };
 
+/* Set up the framework's own per-TU state under -fprofiles: what the
+   framework records from the source.  How profiles are told about any of it
+   is a separate question, not settled.  */
+extern void init_profiles_framework (void);
+
+/* An #include, #include_next or #import directive of this translation unit,
+   as written: [decl.profile.exempt]/1 matches an exemption against it.  */
+
+struct GTY(()) profile_include {
+  /* The directive.  */
+  location_t location;
+  /* The header-name as written, without its delimiters.  */
+  const char *header;
+  /* True for <>, false for "".  */
+  bool angle_p;
+};
+
+/* A profile-exemption of this translation unit ([decl.profile.exempt]).  */
+
+struct GTY(()) profile_exemption {
+  tree profile_name;
+  /* The STRING_CST naming the header.  */
+  tree header;
+  /* True for angle_header, false for quote_header.  */
+  bool angle_p;
+  location_t location;
+};
+
+/* Record the exemption of the header HEADER (a STRING_CST; ANGLE_P for
+   angle_header) from the profile NAME, appearing at LOCATION.  It covers the
+   #include directives after it that name the header as written, with the
+   same delimiters; one that precedes it is diagnosed.  */
+extern void add_profile_exemption (tree name, tree header, bool angle_p,
+				   location_t location);
+
 /* A profile-enforcement seen in the current translation unit.  More
    information will be added here as the profiles framework grows.  */
 

@@ -27,6 +27,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "cpplib.h"
 #include "parser.h"
 #include "tree-pretty-print.h"
+#include "dumpfile.h"
 #include "profiles.h"
 
 /* All profile-enforcements found in the current translation unit, in the
@@ -34,6 +35,90 @@ along with GCC; see the file COPYING3.  If not see
    valid after further pushes.  */
 
 static GTY(()) vec<profile_enforcement *, va_gc> *profile_enforcements;
+
+/* The #include directives of this translation unit, in order, and its
+   exemptions.  */
+static GTY(()) vec<profile_include, va_gc> *profile_includes;
+static GTY(()) vec<profile_exemption, va_gc> *profile_exemptions;
+
+/* -fdump-lang-profiles.  */
+int profiles_dump_id;
+
+/* cpplib's include callback: note each directive as written.  */
+
+static void
+profiles_cb_include (cpp_reader *, location_t location,
+		     const unsigned char *, const char *header,
+		     int angle_brackets, const cpp_token **)
+{
+  /* LOCATION is the start of the directive's line; point at its `#'.  */
+  location = linemap_position_for_loc_and_offset (line_table, location, 1);
+  profile_include inc = { location, ggc_strdup (header),
+			  angle_brackets != 0 };
+  vec_safe_push (profile_includes, inc);
+}
+
+/* See profiles.h.  GCC lexes the whole translation unit before parsing it,
+   so every directive is known by the time an exemption is parsed.  */
+
+void
+init_profiles_framework (void)
+{
+  cpp_callbacks *cb = cpp_get_callbacks (parse_in);
+  if (!cb->include)
+    cb->include = profiles_cb_include;
+}
+
+/* See profiles.h.  */
+
+void
+add_profile_exemption (tree name, tree header, bool angle_p,
+		       location_t location)
+{
+  location = linemap_resolve_location (line_table, location,
+				       LRK_MACRO_EXPANSION_POINT, NULL);
+  for (const profile_exemption &e : profile_exemptions)
+    if (e.location == location)
+      return;
+  profile_exemption ex = { name, header, angle_p, location };
+  vec_safe_push (profile_exemptions, ex);
+
+  const char *h = TREE_STRING_POINTER (header);
+  char open = angle_p ? '<' : '"', close = angle_p ? '>' : '"';
+  FILE *dump = dump_begin (profiles_dump_id, NULL);
+  if (dump)
+    fprintf (dump, "exempt %s from %c%s%c at line %d\n",
+	     IDENTIFIER_POINTER (name), open, h, close,
+	     LOCATION_LINE (location));
+
+  bool warned = false;
+  for (const profile_include &inc : profile_includes)
+    {
+      if (inc.angle_p != angle_p || strcmp (inc.header, h))
+	continue;
+      if (inc.location < location)
+	{
+	  /* Only the directives after it ([markup.exempt.position]).  */
+	  if (!warned)
+	    {
+	      auto_diagnostic_group d;
+	      if (warning_at (location, OPT_Wattributes,
+			      "exemption of %<%c%s%c%> follows an %<#include%>"
+			      " of it, which it does not cover", open, h, close))
+		inform (inc.location, "included here");
+	      warned = true;
+	    }
+	}
+      else if (dump)
+	{
+	  expanded_location xl = expand_location (inc.location);
+	  fprintf (dump, "  covers the #include at %s:%d\n",
+		   lbasename (xl.file), xl.line);
+	}
+    }
+  if (dump)
+    dump_end (profiles_dump_id, dump);
+}
 
 /* Return true if the tree values associated with two tokens are the same.
    Token values are not general C++ expressions: in particular, string

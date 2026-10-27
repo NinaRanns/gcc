@@ -14407,6 +14407,9 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 				        (parser, 1));
     std_attrs = cp_parser_attributes_opt (parser);
   }
+  if (flag_profiles && std_attrs && std_attrs != error_mark_node)
+    /* A recorded profiles::exempt is not an ignored attribute.  */
+    std_attrs = remove_attribute ("profiles", "exempt", std_attrs);
   if (std_attrs)
     attrs_loc = make_location (attrs_loc, attrs_loc, parser->lexer);
   if (c_dialect_objc ())
@@ -17878,9 +17881,13 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
 	}
 
       if (flag_profiles && std_attrs != error_mark_node)
-	/* Strip profiles::enforce attributes (already recorded while
-	   parsing) so they do not trigger the ignored-attribute warning.  */
-	extract_profile_enforcements (&std_attrs, true);
+	{
+	  /* Strip profiles::enforce and profiles::exempt attributes (already
+	     recorded while parsing) so they do not trigger the
+	     ignored-attribute warning.  */
+	  extract_profile_enforcements (&std_attrs, true);
+	  std_attrs = remove_attribute ("profiles", "exempt", std_attrs);
+	}
 
       if (std_attrs != NULL_TREE && any_nonignored_attribute_p (std_attrs))
 	warning_at (make_location (attrs_loc, attrs_loc, parser->lexer),
@@ -34035,21 +34042,22 @@ cp_parser_profiles_designator_seq (cp_parser *parser,
 }
 
 /* Parse `: string-literal', the value of a named argument that the
-   framework itself defines.  Return false after diagnosing an error.  */
+   framework itself defines, and return the string, or error_mark_node after
+   diagnosing an error.  */
 
-static bool
+static tree
 cp_parser_profiles_string_value (cp_parser *parser)
 {
   if (!cp_parser_require (parser, CPP_COLON, RT_COLON))
-    return false;
+    return error_mark_node;
   cp_token *token = cp_lexer_peek_token (parser->lexer);
   if (!cp_parser_is_pure_string_literal (token))
     {
       error_at (token->location, "expected string-literal");
-      return false;
+      return error_mark_node;
     }
-  cp_lexer_consume_token (parser->lexer);
-  return true;
+  return cp_parser_string_literal (parser, /*translate=*/true,
+				   /*wide_ok=*/true);
 }
 
 /* Parse the arguments of profiles::exempt ([decl.profile.exempt]/1),
@@ -34063,12 +34071,16 @@ cp_parser_profiles_string_value (cp_parser *parser)
      angle_header
      quote_header
 
-   Nothing is recorded.  Return false after diagnosing an error.  */
+   Set *NAME, *ANGLE_P and *HEADER to the profile-name, whether the
+   header-search is angle_header, and the header's string-literal.  Return
+   false after diagnosing an error.  */
 
 static bool
-cp_parser_profiles_exempt_args (cp_parser *parser)
+cp_parser_profiles_exempt_args (cp_parser *parser, tree *name, bool *angle_p,
+				tree *header)
 {
-  if (cp_parser_profiles_name (parser) == error_mark_node
+  *name = cp_parser_profiles_name (parser);
+  if (*name == error_mark_node
       || !cp_parser_require (parser, CPP_COMMA, RT_COMMA))
     return false;
 
@@ -34081,8 +34093,10 @@ cp_parser_profiles_exempt_args (cp_parser *parser)
 		"expected %<angle_header%> or %<quote_header%>");
       return false;
     }
+  *angle_p = id_equal (token->u.value, "angle_header");
   cp_lexer_consume_token (parser->lexer);
-  if (!cp_parser_profiles_string_value (parser))
+  *header = cp_parser_profiles_string_value (parser);
+  if (*header == error_mark_node)
     return false;
 
   if (!cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
@@ -34095,7 +34109,7 @@ cp_parser_profiles_exempt_args (cp_parser *parser)
       return false;
     }
   cp_lexer_consume_token (parser->lexer);
-  return cp_parser_profiles_string_value (parser);
+  return cp_parser_profiles_string_value (parser) != error_mark_node;
 }
 
 /* The kind of the profiles:: attribute named ATTR_ID; PAK_INVALID if there
@@ -34160,11 +34174,12 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
 	    return error_mark_node;
 	}
     }
-  else if (kind == PAK_EXEMPT)
-    {
-      if (!cp_parser_profiles_exempt_args (parser))
-	return error_mark_node;
-    }
+  tree exempt_name = NULL_TREE, exempt_header = NULL_TREE;
+  bool exempt_angle_p = false;
+  if (kind == PAK_EXEMPT
+      && !cp_parser_profiles_exempt_args (parser, &exempt_name,
+					  &exempt_angle_p, &exempt_header))
+    return error_mark_node;
 
   if (!cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN))
     return error_mark_node;
@@ -34202,6 +34217,9 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
   /* For enforce and require, TREE_VALUE is the TREE_LIST of designators.  */
   if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
     TREE_VALUE (attribute) = arguments;
+  else if (kind == PAK_EXEMPT)
+    add_profile_exemption (exempt_name, exempt_header, exempt_angle_p,
+			   kind_loc);
 
   return attribute;
 }
