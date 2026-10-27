@@ -17315,6 +17315,26 @@ cp_parser_module_partition (cp_parser *parser, module_state *parent = NULL)
   return cp_parser_module_name (parser, /*partition_p=*/true, parent);
 }
 
+/* Parse the optional attribute-specifier-seq of a module-declaration or a
+   module-import-declaration.  No attribute applies to either, so any is
+   ignored, with a warning ([dcl.attr.grammar]); __translated marks an import
+   translated from an #include, and is the compiler's own.  */
+
+static tree
+cp_parser_module_attributes_opt (cp_parser *parser)
+{
+  location_t loc = cp_lexer_peek_token (parser->lexer)->location;
+  tree attrs = cp_parser_attributes_opt (parser);
+  for (tree attr = attrs; attr; attr = TREE_CHAIN (attr))
+    if (!attribute_ignored_p (attr)
+	&& !is_attribute_p ("__translated", get_attribute_name (attr)))
+      {
+	warning_at (loc, OPT_Wattributes, "attribute ignored");
+	break;
+      }
+  return attrs;
+}
+
 /* Named module-declaration
      __module ; PRAGMA_EOL
      __module : private ; PRAGMA_EOL (unimplemented)
@@ -17387,7 +17407,7 @@ cp_parser_module_declaration (cp_parser *parser, module_parse mp_state,
       module_state *mod = cp_parser_module_name (parser);
       if (mod && cp_lexer_peek_token (parser->lexer)->type == CPP_COLON)
 	mod = cp_parser_module_partition (parser, mod);
-      tree attrs = cp_parser_attributes_opt (parser);
+      tree attrs = cp_parser_module_attributes_opt (parser);
 
       if (mod)
 	mp_state = MP_PURVIEW_IMPORTS;
@@ -17457,7 +17477,7 @@ cp_parser_import_declaration (cp_parser *parser, module_parse mp_state,
 	}
       else
 	mod = cp_parser_module_name (parser);
-      tree attrs = cp_parser_attributes_opt (parser);
+      tree attrs = cp_parser_module_attributes_opt (parser);
 
       if (!mod || !cp_parser_require (parser, CPP_SEMICOLON, RT_SEMICOLON))
 	{
