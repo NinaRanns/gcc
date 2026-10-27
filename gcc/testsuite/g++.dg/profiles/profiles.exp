@@ -139,6 +139,7 @@ set ordinary [lsort [glob -nocomplain $srcdir/$subdir/*.C]]
 set ordinary [prune $ordinary "$srcdir/$subdir/enforce-module*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-module*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-header*.C"]
+set ordinary [prune $ordinary "$srcdir/$subdir/suppress-module*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-place-2.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/require-place-*_*.C"]
 set ordinary [prune $ordinary "$srcdir/$subdir/enforce-place-*_*.C"]
@@ -211,5 +212,6 @@ profiles-run-grouped-module-tests "require-module-*_a.C"
 profiles-run-grouped-module-tests "require-header-*_a.H"
 profiles-run-grouped-module-tests "require-place-*_a.C"
 profiles-run-grouped-module-tests "enforce-place-*_a.C"
+profiles-run-grouped-module-tests "suppress-module-*_a.C"
 
 gcc_parallel_test_enable 1

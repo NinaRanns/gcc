@@ -2196,6 +2196,13 @@ cp_genericize_r (tree *stmt_p, int *walk_subtrees, void *data)
       *walk_subtrees = 0;
       break;
 
+    case PROFILED_STMT:
+      /* A placeholder: until profiles act on it, just its body.  */
+      *stmt_p = PROFILED_STMT_BODY (stmt);
+      *walk_subtrees = 0;
+      cp_walk_tree (stmt_p, cp_genericize_r, data, NULL);
+      break;
+
     case USING_STMT:
       {
 	tree block = NULL_TREE;

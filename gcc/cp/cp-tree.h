@@ -5927,6 +5927,11 @@ decl_template_parm_check (const_tree t, const char *f, int l, const char *fn)
 
 /* These macros provide convenient access to the various _STMT nodes
    created when parsing template declarations.  */
+#define PROFILED_STMT_BODY(NODE) \
+  TREE_OPERAND (PROFILED_STMT_CHECK (NODE), 0)
+#define PROFILED_STMT_ATTRIBUTES(NODE) \
+  TREE_OPERAND (PROFILED_STMT_CHECK (NODE), 1)
+
 #define TRY_STMTS(NODE)		TREE_OPERAND (TRY_BLOCK_CHECK (NODE), 0)
 #define TRY_HANDLERS(NODE)	TREE_OPERAND (TRY_BLOCK_CHECK (NODE), 1)
 

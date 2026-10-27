@@ -474,6 +474,9 @@ cxx_block_may_fallthru (const_tree stmt)
     case THROW_EXPR:
       return false;
 
+    case PROFILED_STMT:
+      return block_may_fallthru (PROFILED_STMT_BODY (stmt));
+
     case IF_STMT:
       if (IF_STMT_CONSTEXPR_P (stmt))
 	{
@@ -662,6 +665,7 @@ cp_common_init_ts (void)
   MARK_TS_EXP (RANGE_FOR_STMT);
   MARK_TS_EXP (TEMPLATE_FOR_STMT);
   MARK_TS_EXP (TRY_BLOCK);
+  MARK_TS_EXP (PROFILED_STMT);
   MARK_TS_EXP (USING_STMT);
 
   /* Random expressions.  */

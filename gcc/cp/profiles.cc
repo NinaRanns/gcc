@@ -28,6 +28,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "parser.h"
 #include "tree-pretty-print.h"
 #include "dumpfile.h"
+#include "langhooks.h"
 #include "profiles.h"
 
 /* All profile-enforcements found in the current translation unit, in the
@@ -58,8 +59,63 @@ profiles_cb_include (cpp_reader *, location_t location,
   vec_safe_push (profile_includes, inc);
 }
 
+/* The handler for profiles:: attributes that reach decl_attributes.  Only
+   suppress does: the others are stripped or diagnosed where they are
+   parsed.  A suppress on a declaration, a label included, is kept with the
+   entity declared: in DECL_ATTRIBUTES, or for a class or enumeration in its
+   TYPE_ATTRIBUTES.  On any other type it is ignored, since there it does
+   not appertain to a declaration ([decl.profile.suppress]/3).  */
+
+static tree
+handle_profiles_attribute (tree *node, tree name, tree args, int,
+			   bool *no_add_attrs)
+{
+  if (!is_attribute_p ("suppress", name))
+    {
+      *no_add_attrs = true;
+      return NULL_TREE;
+    }
+  if (!DECL_P (*node) && !OVERLOAD_TYPE_P (*node))
+    {
+      warning (OPT_Wattributes, "%<profiles::suppress%> on a type is ignored");
+      *no_add_attrs = true;
+      return NULL_TREE;
+    }
+  if (FILE *dump = dump_begin (profiles_dump_id, NULL))
+    {
+      tree decl = TYPE_P (*node) ? TYPE_NAME (*node) : *node;
+      fprintf (dump, "suppress %s on %s %s at line %d\n",
+	       args ? IDENTIFIER_POINTER (TREE_PURPOSE (args)) : "?",
+	       get_tree_code_name (TREE_CODE (*node)),
+	       decl && DECL_NAME (decl)
+	       ? lang_hooks.decl_printable_name (decl, 0) : "<anonymous>",
+	       decl ? LOCATION_LINE (DECL_SOURCE_LOCATION (decl)) : 0);
+      dump_end (profiles_dump_id, dump);
+    }
+  return NULL_TREE;
+}
+
+static const attribute_spec profiles_attributes[] =
+{
+  { "enforce", 0, -1, false, false, false, false,
+    handle_profiles_attribute, NULL },
+  { "require", 0, -1, false, false, false, false,
+    handle_profiles_attribute, NULL },
+  { "suppress", 0, -1, false, false, false, false,
+    handle_profiles_attribute, NULL },
+  { "exempt", 0, -1, false, false, false, false,
+    handle_profiles_attribute, NULL },
+};
+
+static const scoped_attribute_specs profiles_attribute_table =
+{
+  "profiles", { profiles_attributes }
+};
+
 /* See profiles.h.  GCC lexes the whole translation unit before parsing it,
-   so every directive is known by the time an exemption is parsed.  */
+   so every directive is known by the time an exemption is parsed.  The
+   profiles namespace is registered only under -fprofiles, so that without
+   it profiles:: is an unknown namespace, as before.  */
 
 void
 init_profiles_framework (void)
@@ -67,6 +123,7 @@ init_profiles_framework (void)
   cpp_callbacks *cb = cpp_get_callbacks (parse_in);
   if (!cb->include)
     cb->include = profiles_cb_include;
+  register_scoped_attributes (profiles_attribute_table);
 }
 
 /* See profiles.h.  */
