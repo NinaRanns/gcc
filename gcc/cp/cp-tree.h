@@ -7286,6 +7286,7 @@ extern int module_dump_id;
 extern int raw_dump_id;
 extern int coro_dump_id;
 extern int tinst_dump_id;
+extern int profiles_dump_id;
 
 /* Whether the current context is manifestly constant-evaluated.
    Used by the constexpr machinery to control folding of

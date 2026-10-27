@@ -437,6 +437,9 @@ cxx_init (void)
 
   init_cp_pragma ();
 
+  if (flag_profiles)
+    init_profiles_framework ();
+
   input_location = saved_loc;
   return true;
 }

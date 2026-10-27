@@ -1,8 +1,5 @@
 // { dg-do compile { target c++11 } }
 // { dg-options "-fprofiles" }
-// TODO: remove when exemptions are recorded (they are only parsed so far)
-// { dg-prune-output "scoped attribute directive ignored" }
-// { dg-prune-output "warning: attribute ignored" }
 
 // Grammar of profiles::exempt ([decl.profile.exempt]/1):
 //   ( profile-name , header-search : string-literal )

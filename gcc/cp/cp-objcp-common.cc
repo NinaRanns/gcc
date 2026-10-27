@@ -612,6 +612,9 @@ cp_register_dumps (gcc::dump_manager *dumps)
     (".coro", "lang-coro", "lang-coro", DK_lang, OPTGROUP_NONE, false);
   tinst_dump_id = dumps->dump_register
     (".tinst", "lang-tinst", "lang-tinst", DK_lang, OPTGROUP_NONE, false);
+  profiles_dump_id = dumps->dump_register
+    (".profiles", "lang-profiles", "lang-profiles", DK_lang, OPTGROUP_NONE,
+     false);
 }
 
 void
