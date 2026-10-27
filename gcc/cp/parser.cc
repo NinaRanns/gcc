@@ -14399,7 +14399,14 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
        c++11 attributes, or a nested objc-message-expression.  So
        let's parse the c++11 attributes tentatively.  */
     cp_parser_parse_tentatively (parser);
-  std_attrs = cp_parser_attributes_opt (parser);
+  {
+    /* An otherwise empty statement: profiles::exempt may appear.  */
+    auto ovr = make_temp_override (parser->allow_profiles_exempt_p,
+				   flag_profiles
+				   && cp_parser_peek_attribute_declaration_p
+				        (parser, 1));
+    std_attrs = cp_parser_attributes_opt (parser);
+  }
   if (std_attrs)
     attrs_loc = make_location (attrs_loc, attrs_loc, parser->lexer);
   if (c_dialect_objc ())
@@ -17849,6 +17856,7 @@ cp_parser_declaration (cp_parser* parser, tree prefix_attrs)
   else if (cp_parser_peek_attribute_declaration_p (parser, 1))
     {
       location_t attrs_loc = token1->location;
+      auto ovr = make_temp_override (parser->allow_profiles_exempt_p, true);
       tree std_attrs = cp_parser_std_attribute_spec_seq (parser);
 
       if (std_attrs && (flag_openmp || flag_openmp_simd))
@@ -34126,7 +34134,8 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
      error itself follows the argument clause.  */
   bool misplaced
     = ((kind == PAK_ENFORCE && !parser->allow_profiles_enforce_p)
-       || (kind == PAK_REQUIRE && !parser->allow_profiles_require_p));
+       || (kind == PAK_REQUIRE && !parser->allow_profiles_require_p)
+       || (kind == PAK_EXEMPT && !parser->allow_profiles_exempt_p));
 
   tree arguments = NULL_TREE;
   if (kind == PAK_ENFORCE || kind == PAK_REQUIRE)
@@ -34180,6 +34189,13 @@ cp_parser_profiles_attribute (cp_parser *parser, tree attribute, tree attr_id)
       error_at (kind_loc,
 		"%<profiles::require%> may only appear on an import "
 		"declaration");
+      return error_mark_node;
+    }
+  else if (misplaced && kind == PAK_EXEMPT)
+    {
+      error_at (kind_loc,
+		"%<profiles::exempt%> may only appear in an attribute-declaration "
+		"or on an empty statement");
       return error_mark_node;
     }
 

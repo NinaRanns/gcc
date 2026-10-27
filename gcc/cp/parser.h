@@ -441,6 +441,10 @@ struct GTY(()) cp_parser {
      contiguous import region of a named module.  */
   bool allow_profiles_enforce_p;
 
+  /* TRUE while parsing the attribute-specifier-seq of an attribute-declaration
+     or of an otherwise empty statement, where profiles::exempt may appear.  */
+  bool allow_profiles_exempt_p;
+
   /* TRUE if an OpenMP array section is allowed.  */
   bool omp_array_section_p;
 
