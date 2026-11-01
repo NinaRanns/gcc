@@ -4730,6 +4730,23 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
       return false;
 
     case AND:
+      /* The masked byte shift can be implemented with packh and a zero
+	 first operand.  Cost it as one instruction so that combine can
+	 use it as a bridge to the two-register packh pattern, even when
+	 Zbb makes the separate zero extension inexpensive.  */
+      if (TARGET_ZBKB
+	  && mode == word_mode
+	  && GET_CODE (XEXP (x, 0)) == ASHIFT
+	  && register_operand (XEXP (XEXP (x, 0), 0), mode)
+	  && CONST_INT_P (XEXP (XEXP (x, 0), 1))
+	  && INTVAL (XEXP (XEXP (x, 0), 1)) == 8
+	  && CONST_INT_P (XEXP (x, 1))
+	  && INTVAL (XEXP (x, 1)) == 0xff00)
+	{
+	  *total = COSTS_N_INSNS (1);
+	  return true;
+	}
+
       /* Andes bfo patterns.  */
       if (TARGET_XANDESPERF && GET_CODE (XEXP (x, 0)) == ASHIFT)
 	{
@@ -16253,12 +16270,18 @@ synthesize_ior_xor (rtx_code code, rtx operands[3])
 	 of leading zeros after masking off all but the low 11 bits.  */
       int rotcount = clz_hwi (ival & 0x7ff) - (BITS_PER_WORD - 11);
 
-      /* Rotate the constant left by MSB bits.  */
-      ival = (ival << rotcount) | (ival >> (BITS_PER_WORD - rotcount));
+      /* Rotate the constant left by MSB bits.  Avoid undefined behavior if
+	 rotcount is zero.  A rotcount of zero means there's no room to rotate
+	 in bits.  We can just set ival to all ones so is rejected later with
+	 the msb - lsb check.  */
+      if (rotcount != 0)
+	ival = (ival << rotcount) | (ival >> (BITS_PER_WORD - rotcount));
+      else
+	ival = HOST_WIDE_INT_M1U;
 
       /* Now we can do the same tests as before. */
       lsb = ctz_hwi (ival);
-      msb = BITS_PER_WORD - clz_hwi (ival);
+      msb = BITS_PER_WORD - 1 - clz_hwi (ival);
       if ((INTVAL (operands[2]) & HOST_WIDE_INT_UC (0x7ff)) != 0
 	  && msb - lsb + 1 <= 11)
 	{
@@ -16507,7 +16530,7 @@ synthesize_and (rtx operands[3])
       && budget >= 3
       && consecutive_bits_operand (GEN_INT (~t), word_mode)
       && ((TARGET_ZBA && popcount_hwi (t) == 32)
-	  || popcount_hwi (t) == 16
+	  || (TARGET_ZBB && popcount_hwi (t) == 16)
 	  || popcount_hwi (t) <= 11))
     {
       /* First rotate the relevant bits into the low position.  */

@@ -6812,14 +6812,9 @@ gfc_trans_allocate (gfc_code * code, gfc_omp_namelist *omp_allocate)
 	vtab_needed = (al->expr->ts.type == BT_CLASS);
 
       gfc_init_se (&se, NULL);
-      /* When expr3 is a variable, i.e., a very simple expression, then
-	 convert it once here.  If one has a source expression that has
-	 substring references, part-refs, or %re/%im inquiries, wrap the
-	 entity in parentheses to force evaluation of the expression.  */
-      if (code->expr3->expr_type == EXPR_VARIABLE
-	  && is_subref_array (code->expr3))
-	code->expr3 = gfc_get_parentheses (code->expr3);
 
+      /* When expr3 is a variable, i.e., a very simple expression, then
+	 convert it once here.  */
       if (code->expr3->expr_type == EXPR_VARIABLE
 	  || code->expr3->expr_type == EXPR_ARRAY
 	  || code->expr3->expr_type == EXPR_CONSTANT)
@@ -7754,10 +7749,16 @@ gfc_trans_allocate (gfc_code * code, gfc_omp_namelist *omp_allocate)
 
 	  if (code->expr3 && code->expr3->param_list)
 	    param_list = code->expr3->param_list;
+	  else if (code->expr3 && code->expr3->mold
+		   && code->expr3->expr_type == EXPR_VARIABLE)
+	    param_list = code->expr3->symtree->n.sym->param_list;
 	  else if (expr->param_list)
 	    param_list = expr->param_list;
 	  else
 	    param_list = expr->symtree->n.sym->param_list;
+
+	  gcc_assert (param_list);
+
 	  /* For array allocations the allocate-shape-spec expression has
 	     rank 0 even though the symbol is an array.  Use the rank from
 	     the array descriptor when se.expr is a GFC descriptor so that

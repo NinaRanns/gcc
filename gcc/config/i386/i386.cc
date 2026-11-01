@@ -7822,12 +7822,15 @@ static GTY(()) rtx queued_cfa_restores;
    manipulation insn.  The value is on the stack at CFA - CFA_OFFSET.
    Don't add the note if the previously saved value will be left untouched
    within stack red-zone till return, as unwinders can find the same value
-   in the register and on the stack.  */
+   in the register and on the stack.  This doesn't apply to DRAP frames,
+   where registers are saved using frame-pointer-relative expression rules
+   that become invalid once the frame pointer is restored.  */
 
 static void
 ix86_add_cfa_restore_note (rtx_insn *insn, rtx reg, HOST_WIDE_INT cfa_offset)
 {
   if (!crtl->shrink_wrapped
+      && !stack_realign_drap
       && cfa_offset <= cfun->machine->fs.red_zone_offset)
     return;
 
@@ -19315,6 +19318,24 @@ ix86_fold_builtin (tree fndecl, int n_args,
 	    }
 	  break;
 
+	case IX86_BUILTIN_CRC32QI:
+	case IX86_BUILTIN_CRC32HI:
+	case IX86_BUILTIN_CRC32SI:
+	case IX86_BUILTIN_CRC32DI:
+	  gcc_assert (n_args == 2);
+	  if (tree_fits_uhwi_p (args[0]) && tree_fits_uhwi_p (args[1]))
+	  {
+	    unsigned HOST_WIDE_INT crc = tree_to_uhwi (args[0]);
+	    crc &= 0xffffffff;
+	    unsigned HOST_WIDE_INT data = tree_to_uhwi (args[1]);
+	    unsigned short data_bits = TYPE_PRECISION (TREE_TYPE (args[1]));
+	    unsigned HOST_WIDE_INT res = calculate_reversed_crc (crc, data,
+								 0x1EDC6F41,
+								 32, data_bits);
+	    return build_int_cstu (TREE_TYPE (TREE_TYPE (fndecl)), res);
+	  }
+	  break;
+
 	case IX86_BUILTIN_BEXTR32:
 	case IX86_BUILTIN_BEXTR64:
 	case IX86_BUILTIN_BEXTRI32:
@@ -27338,7 +27359,7 @@ ix86_vector_costs::add_stmt_cost (int count, vect_cost_for_stmt kind,
 
 		  /* Vectorizer lane_reducing_op_p supports DOT_PROX_EXPR,
 		     WIDEN_SUM_EXPR and SAD_EXPR, x86 backend only supports
-		     SAD_EXPR (usad{v16qi,v32qi,v64qi}) and DOT_PROD_EXPR.  */
+		     SAD_EXPR (usad{v4siv16qi,v8siv32qi,v16siv64qi}) and DOT_PROD_EXPR.  */
 		case DOT_PROD_EXPR:
 		  rhs1 = gimple_assign_rhs1 (stmt_info->stmt);
 		  mode_rhs = TYPE_MODE (TREE_TYPE (rhs1));
